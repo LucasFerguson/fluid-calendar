@@ -1,0 +1,8 @@
+[Unit]
+Description=Nightly pg_dump of the fluidcal database
+After=postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /root/fluid-calendar/scripts/backup-fluidcal-db.sh
