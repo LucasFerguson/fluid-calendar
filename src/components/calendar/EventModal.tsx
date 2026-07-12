@@ -129,10 +129,12 @@ export function EventModal({
   defaultDate,
   defaultEndDate,
 }: EventModalProps) {
-  const { feeds, addEvent, updateEvent, removeEvent } = useCalendarStore();
+  const { feeds, events, addEvent, updateEvent, removeEvent } =
+    useCalendarStore();
   const { calendar } = useSettingsStore();
   const titleInputRef = useRef<HTMLInputElement>(null);
   const [showRecurrenceDialog, setShowRecurrenceDialog] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [editMode, setEditMode] = useState<"single" | "series">();
   const [title, setTitle] = useState(event?.title || "");
   const [description, setDescription] = useState(event?.description || "");
@@ -266,10 +268,23 @@ export function EventModal({
 
   const handleDelete = async () => {
     if (!event?.id) return;
+    // Recurring events get Google's three-way choice; standalone events delete
+    // straight away.
+    if (event.isRecurring) {
+      setShowDeleteDialog(true);
+      return;
+    }
+    await performDelete("single");
+  };
 
+  const performDelete = async (
+    mode: "single" | "series" | "thisAndFollowing"
+  ) => {
+    if (!event?.id) return;
     try {
       setIsSubmitting(true);
-      await removeEvent(event.id, editMode);
+      setShowDeleteDialog(false);
+      await removeEvent(event.id, mode);
       resetState();
       onClose();
     } catch (error) {
@@ -279,6 +294,25 @@ export function EventModal({
       setIsSubmitting(false);
     }
   };
+
+  // Series info (from the events already loaded in the store): the earliest
+  // occurrence date and how many occurrences currently exist. Lets the modal
+  // show "started N days ago · M occurrences" under the recurring checkbox.
+  const seriesInfo = (() => {
+    if (!event?.isRecurring || !event?.recurringEventId) return null;
+    const siblings = events.filter(
+      (e) => e.recurringEventId === event.recurringEventId && !e.isMaster
+    );
+    if (siblings.length === 0) return null;
+    const earliest = siblings.reduce(
+      (min, e) => (newDate(e.start) < min ? newDate(e.start) : min),
+      newDate(siblings[0].start)
+    );
+    const daysAgo = Math.round(
+      (Date.now() - earliest.getTime()) / (24 * 3600 * 1000)
+    );
+    return { count: siblings.length, earliest, daysAgo };
+  })();
 
   // Helper function to render recurrence options
   const renderRecurrenceOptions = () => {
@@ -474,6 +508,63 @@ export function EventModal({
               </Label>
             </div>
 
+            {/* Recurrence is grouped with the time fields (like Google
+                Calendar) so a series' cadence sits next to its schedule. */}
+            <div className="space-y-2 rounded-md border bg-muted/30 p-3">
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="recurring"
+                  checked={isRecurring}
+                  onCheckedChange={(checked) => {
+                    const isChecked = checked as boolean;
+                    setIsRecurring(isChecked);
+                    if (
+                      isChecked &&
+                      (recurrenceFreq === FREQUENCIES.NONE || !recurrenceFreq)
+                    ) {
+                      setRecurrenceFreq(FREQUENCIES.WEEKLY);
+                      const weekdayNum = startDate.getDay();
+                      const weekdays = [
+                        "SU",
+                        "MO",
+                        "TU",
+                        "WE",
+                        "TH",
+                        "FR",
+                        "SA",
+                      ];
+                      const weekday = weekdays[weekdayNum];
+                      setRecurrenceByDay([weekday]);
+                    }
+                  }}
+                  data-testid="recurring-event-checkbox"
+                />
+                <Label htmlFor="recurring" className="text-sm">
+                  Recurring event
+                </Label>
+              </div>
+
+              {seriesInfo && (
+                <div className="pl-6 text-xs text-muted-foreground">
+                  Series started{" "}
+                  <span className="font-medium text-foreground">
+                    {seriesInfo.earliest.toLocaleDateString(undefined, {
+                      year: "numeric",
+                      month: "short",
+                      day: "numeric",
+                    })}
+                  </span>{" "}
+                  ({seriesInfo.daysAgo === 0
+                    ? "today"
+                    : `${seriesInfo.daysAgo.toLocaleString()} day${seriesInfo.daysAgo === 1 ? "" : "s"} ago`}
+                  ) · {seriesInfo.count.toLocaleString()} occurrence
+                  {seriesInfo.count === 1 ? "" : "s"}
+                </div>
+              )}
+
+              {renderRecurrenceOptions()}
+            </div>
+
             <div className="space-y-2">
               <Label htmlFor="location">Location</Label>
               <Input
@@ -487,42 +578,18 @@ export function EventModal({
 
             <div className="space-y-2">
               <Label htmlFor="description">Description</Label>
+              {/* TODO(description-markdown): render the description as Markdown
+                  when not focused, and swap to this raw textarea on click to
+                  edit (click-to-edit). Google Calendar-style rich text. */}
               <Textarea
                 id="description"
                 data-testid="event-description-input"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                rows={3}
-                className="event-description resize-none"
+                rows={6}
+                className="event-description min-h-[8rem]"
               />
             </div>
-
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                id="recurring"
-                checked={isRecurring}
-                onCheckedChange={(checked) => {
-                  const isChecked = checked as boolean;
-                  setIsRecurring(isChecked);
-                  if (
-                    isChecked &&
-                    (recurrenceFreq === FREQUENCIES.NONE || !recurrenceFreq)
-                  ) {
-                    setRecurrenceFreq(FREQUENCIES.WEEKLY);
-                    const weekdayNum = startDate.getDay();
-                    const weekdays = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
-                    const weekday = weekdays[weekdayNum];
-                    setRecurrenceByDay([weekday]);
-                  }
-                }}
-                data-testid="recurring-event-checkbox"
-              />
-              <Label htmlFor="recurring" className="text-sm">
-                Recurring event
-              </Label>
-            </div>
-
-            {renderRecurrenceOptions()}
 
             <div className="flex items-center justify-between pt-4">
               {event?.id ? (
@@ -600,11 +667,65 @@ export function EventModal({
           </AlertDialog.Content>
         </AlertDialog.Portal>
       </AlertDialog.Root>
+
+      {/* Recurring Event Delete Dialog (Google's three-way choice) */}
+      <AlertDialog.Root
+        open={showDeleteDialog}
+        onOpenChange={setShowDeleteDialog}
+      >
+        <AlertDialog.Portal>
+          <AlertDialog.Overlay className="fixed inset-0 z-[10001] bg-background/80 backdrop-blur-sm" />
+          <AlertDialog.Content className="fixed left-1/2 top-1/2 z-[10002] w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-lg border bg-background p-6 shadow-lg">
+            <AlertDialog.Title className="mb-4 text-lg font-semibold">
+              Delete recurring event
+            </AlertDialog.Title>
+            <AlertDialog.Description className="mb-6 text-sm text-muted-foreground">
+              Delete only this occurrence, this and all following occurrences,
+              or the entire series?
+            </AlertDialog.Description>
+            <div className="flex flex-col gap-2">
+              <Button
+                variant="outline"
+                className="justify-start"
+                onClick={() => performDelete("single")}
+                data-testid="delete-single-event-button"
+              >
+                This event
+              </Button>
+              <Button
+                variant="outline"
+                className="justify-start"
+                onClick={() => performDelete("thisAndFollowing")}
+                data-testid="delete-this-and-following-button"
+              >
+                This and following events
+              </Button>
+              <Button
+                variant="outline"
+                className="justify-start"
+                onClick={() => performDelete("series")}
+                data-testid="delete-series-button"
+              >
+                All events
+              </Button>
+              <Button
+                variant="ghost"
+                className="mt-1 self-end"
+                onClick={() => setShowDeleteDialog(false)}
+                data-testid="delete-cancel-button"
+              >
+                Cancel
+              </Button>
+            </div>
+          </AlertDialog.Content>
+        </AlertDialog.Portal>
+      </AlertDialog.Root>
     </>
   );
 
   function resetState() {
     setShowRecurrenceDialog(false);
+    setShowDeleteDialog(false);
     setEditMode(undefined);
     setTitle("");
     setDescription("");

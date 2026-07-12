@@ -102,7 +102,10 @@ interface CalendarStore extends CalendarState {
     updates: Partial<CalendarEvent>,
     mode?: "single" | "series"
   ) => Promise<void>;
-  removeEvent: (id: string, mode?: "single" | "series") => Promise<void>;
+  removeEvent: (
+    id: string,
+    mode?: "single" | "series" | "thisAndFollowing"
+  ) => Promise<void>;
 
   // Feed synchronization
   syncFeed: (id: string) => Promise<void>;

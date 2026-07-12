@@ -256,12 +256,45 @@ export async function updateGoogleEvent(
   }
 }
 
+export type RecurringDeleteMode = "single" | "series" | "thisAndFollowing";
+
+// Format a Date as an RRULE UNTIL value in UTC basic format
+// (YYYYMMDDTHHMMSSZ for timed events, YYYYMMDD for all-day).
+function formatUntil(date: Date, allDay: boolean): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  const y = date.getUTCFullYear();
+  const mo = p(date.getUTCMonth() + 1);
+  const d = p(date.getUTCDate());
+  if (allDay) return `${y}${mo}${d}`;
+  return `${y}${mo}${d}T${p(date.getUTCHours())}${p(date.getUTCMinutes())}${p(date.getUTCSeconds())}Z`;
+}
+
+// Truncate a series by rewriting the master's RRULE to end just before `cutoff`.
+// Existing UNTIL/COUNT are stripped (a series has at most one bound); other
+// recurrence lines (EXDATE/RDATE) are preserved.
+function truncateRecurrence(
+  recurrence: string[],
+  cutoff: Date,
+  allDay: boolean
+): string[] {
+  const until = formatUntil(cutoff, allDay);
+  return recurrence.map((line) => {
+    if (!line.startsWith("RRULE:")) return line;
+    const body = line
+      .slice("RRULE:".length)
+      .split(";")
+      .filter((p) => p && !/^UNTIL=/i.test(p) && !/^COUNT=/i.test(p));
+    body.push(`UNTIL=${until}`);
+    return `RRULE:${body.join(";")}`;
+  });
+}
+
 export async function deleteGoogleEvent(
   accountId: string,
   userId: string,
   calendarId: string,
   eventId: string,
-  mode: "single" | "series" = "single",
+  mode: RecurringDeleteMode = "single",
   // Test seam: lets callers inject a calendar client. Defaults to the real one.
   getClient: typeof getGoogleCalendarClient = getGoogleCalendarClient
 ) {
@@ -274,6 +307,54 @@ export async function deleteGoogleEvent(
       calendarId,
       eventId,
     });
+
+    // "This and following": truncate the series' RRULE with UNTIL just before
+    // this occurrence, rather than deleting rows. Google then stops generating
+    // this occurrence and every later one (they arrive as status=cancelled on
+    // the next sync). Matches Google Calendar's own behavior.
+    if (mode === "thisAndFollowing") {
+      const masterId = event.data.recurringEventId;
+      const startStr = event.data.start?.dateTime || event.data.start?.date;
+      if (!masterId || !startStr) {
+        // Clicked event is the master itself (or a standalone) — "this and
+        // following" from the first occurrence is the whole series.
+        await calendar.events.delete({ calendarId, eventId });
+        return;
+      }
+      const master = await calendar.events.get({
+        calendarId,
+        eventId: masterId,
+      });
+      const allDay = !event.data.start?.dateTime;
+      // Cutoff = one second before this occurrence's start so the occurrence
+      // itself is excluded (all-day uses the day before).
+      const occurrenceStart = new Date(startStr);
+      const cutoff = new Date(
+        occurrenceStart.getTime() - (allDay ? 24 * 3600 : 1) * 1000
+      );
+      const masterStartStr =
+        master.data.start?.dateTime || master.data.start?.date;
+      // If truncating at/before the series' first occurrence, nothing remains —
+      // delete the whole series instead of leaving an empty RRULE.
+      if (masterStartStr && cutoff <= new Date(masterStartStr)) {
+        await calendar.events.delete({ calendarId, eventId: masterId });
+        return;
+      }
+      const recurrence = master.data.recurrence;
+      if (!recurrence || recurrence.length === 0) {
+        // No rule to truncate; fall back to deleting the master.
+        await calendar.events.delete({ calendarId, eventId: masterId });
+        return;
+      }
+      await calendar.events.patch({
+        calendarId,
+        eventId: masterId,
+        requestBody: {
+          recurrence: truncateRecurrence(recurrence, cutoff, allDay),
+        },
+      });
+      return;
+    }
 
     // For series deletion, target the master recurring event id.
     if (mode === "series") {

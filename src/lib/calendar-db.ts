@@ -91,7 +91,7 @@ export async function validateEvent(
 
 export async function deleteCalendarEvent(
   eventId: string,
-  mode: "single" | "series" = "single"
+  mode: "single" | "series" | "thisAndFollowing" = "single"
 ) {
   const event = await getEvent(eventId);
 
@@ -131,10 +131,11 @@ export async function deleteCalendarEvent(
     }
   };
 
+  const masterId =
+    event.isMaster || !event.masterEventId ? event.id : event.masterEventId;
+
   if (mode === "series") {
     // Remove the event and any related instances from our database
-    const masterId =
-      event.isMaster || !event.masterEventId ? event.id : event.masterEventId;
     if (softCancel) {
       // Cancelling doesn't cascade like a delete; cancel instances too.
       await prisma.calendarEvent.updateMany({
@@ -148,6 +149,31 @@ export async function deleteCalendarEvent(
           id: masterId,
         },
       });
+    }
+  } else if (mode === "thisAndFollowing") {
+    // Optimistically soft-cancel this occurrence and every later one in the
+    // series (Google truncates the master RRULE; the next incremental sync
+    // reconciles the master's rule and confirms these cancellations). Only
+    // meaningful for the soft-cancel (Google) path; other providers fall back
+    // to a single delete.
+    if (softCancel) {
+      await prisma.calendarEvent.updateMany({
+        where: {
+          masterEventId: masterId,
+          start: { gte: event.start },
+          status: { not: "cancelled" },
+        },
+        data: { status: "cancelled" },
+      });
+      // The clicked row itself, if it is the master rather than an instance.
+      if (event.isMaster) {
+        await prisma.calendarEvent.update({
+          where: { id: event.id },
+          data: { status: "cancelled" },
+        });
+      }
+    } else {
+      await removeById(event.id);
     }
   } else {
     //remove a single instance
