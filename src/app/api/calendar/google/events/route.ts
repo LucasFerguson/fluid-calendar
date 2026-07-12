@@ -32,86 +32,92 @@ async function writeEventToDatabase(
   const isAllDay = event.start ? !event.start.dateTime : false;
 
   if (!isRecurring) {
-    // Create the master event only if not recurring
-    const masterEvent = await prisma.calendarEvent.create({
-      data: {
-        feedId,
-        externalEventId: event.id,
-        title: event.summary || "Untitled Event",
-        description: event.description || "",
-        start: isAllDay
-          ? createAllDayDate(event.start?.date || "")
-          : newDate(event.start?.dateTime || event.start?.date || ""),
-        end: isAllDay
-          ? createAllDayDate(event.end?.date || "")
-          : newDate(event.end?.dateTime || event.end?.date || ""),
-        location: event.location,
-        isRecurring: isRecurring,
-        recurrenceRule: event.recurrence?.[0],
-        allDay: isAllDay,
-        status: event.status,
-        sequence: event.sequence,
-        created: event.created ? newDate(event.created) : undefined,
-        lastModified: event.updated ? newDate(event.updated) : undefined,
-        organizer: event.organizer
-          ? {
-              name: event.organizer.displayName,
-              email: event.organizer.email,
-            }
-          : undefined,
-        attendees: event.attendees?.map((a) => ({
-          name: a.displayName,
-          email: a.email,
-          status: a.responseStatus,
-        })),
-      },
+    if (!event.id) return null;
+    // Upsert (not create): after an edit/move the row already exists — and now
+    // carries a (feedId, externalEventId) unique constraint — so a plain create
+    // would violate it. Upsert also un-cancels a previously soft-cancelled row.
+    const data = {
+      feedId,
+      externalEventId: event.id,
+      title: event.summary || "Untitled Event",
+      description: event.description || "",
+      start: isAllDay
+        ? createAllDayDate(event.start?.date || "")
+        : newDate(event.start?.dateTime || event.start?.date || ""),
+      end: isAllDay
+        ? createAllDayDate(event.end?.date || "")
+        : newDate(event.end?.dateTime || event.end?.date || ""),
+      location: event.location,
+      isRecurring: isRecurring,
+      recurrenceRule: event.recurrence?.[0],
+      allDay: isAllDay,
+      status: event.status,
+      sequence: event.sequence,
+      created: event.created ? newDate(event.created) : undefined,
+      lastModified: event.updated ? newDate(event.updated) : undefined,
+      organizer: event.organizer
+        ? { name: event.organizer.displayName, email: event.organizer.email }
+        : undefined,
+      attendees: event.attendees?.map((a) => ({
+        name: a.displayName,
+        email: a.email,
+        status: a.responseStatus,
+      })),
+    };
+    return prisma.calendarEvent.upsert({
+      where: { feedId_externalEventId: { feedId, externalEventId: event.id } },
+      create: data,
+      update: data,
     });
-    return masterEvent;
   }
 
-  // Create instances if any
+  // Upsert instances if any
   const createdInstances = [];
   if (instances) {
     for (const instance of instances) {
+      if (!instance.id) continue;
       const instanceIsAllDay = instance.start
         ? !instance.start.dateTime
         : false;
 
-      const createdInstance = await prisma.calendarEvent.create({
-        data: {
-          feedId,
-          externalEventId: instance.id,
-          title: instance.summary || "Untitled Event",
-          description: instance.description || "",
-          start: instanceIsAllDay
-            ? createAllDayDate(instance.start?.date || "")
-            : newDate(instance.start?.dateTime || instance.start?.date || ""),
-          end: instanceIsAllDay
-            ? createAllDayDate(instance.end?.date || "")
-            : newDate(instance.end?.dateTime || instance.end?.date || ""),
-          location: instance.location,
-          isRecurring: true,
-          recurrenceRule: event.recurrence?.[0],
-          recurringEventId: instance.recurringEventId,
-          allDay: instanceIsAllDay,
-          status: instance.status,
-          sequence: instance.sequence,
-          created: instance.created ? newDate(instance.created) : undefined,
-          lastModified: instance.updated
-            ? newDate(instance.updated)
-            : undefined,
-          organizer: instance.organizer
-            ? {
-                name: instance.organizer.displayName,
-                email: instance.organizer.email,
-              }
-            : undefined,
-          attendees: instance.attendees?.map((a) => ({
-            name: a.displayName,
-            email: a.email,
-            status: a.responseStatus,
-          })),
+      const data = {
+        feedId,
+        externalEventId: instance.id,
+        title: instance.summary || "Untitled Event",
+        description: instance.description || "",
+        start: instanceIsAllDay
+          ? createAllDayDate(instance.start?.date || "")
+          : newDate(instance.start?.dateTime || instance.start?.date || ""),
+        end: instanceIsAllDay
+          ? createAllDayDate(instance.end?.date || "")
+          : newDate(instance.end?.dateTime || instance.end?.date || ""),
+        location: instance.location,
+        isRecurring: true,
+        recurrenceRule: event.recurrence?.[0],
+        recurringEventId: instance.recurringEventId,
+        allDay: instanceIsAllDay,
+        status: instance.status,
+        sequence: instance.sequence,
+        created: instance.created ? newDate(instance.created) : undefined,
+        lastModified: instance.updated ? newDate(instance.updated) : undefined,
+        organizer: instance.organizer
+          ? {
+              name: instance.organizer.displayName,
+              email: instance.organizer.email,
+            }
+          : undefined,
+        attendees: instance.attendees?.map((a) => ({
+          name: a.displayName,
+          email: a.email,
+          status: a.responseStatus,
+        })),
+      };
+      const createdInstance = await prisma.calendarEvent.upsert({
+        where: {
+          feedId_externalEventId: { feedId, externalEventId: instance.id },
         },
+        create: data,
+        update: data,
       });
       createdInstances.push(createdInstance);
     }
@@ -250,10 +256,10 @@ export async function PUT(request: NextRequest) {
       throw new Error("Failed to get event ID from Google Calendar");
     }
 
-    // Delete existing event and any related instances from our database
-    deleteCalendarEvent(validatedEvent.id, mode);
-
-    // Get the updated event and its instances
+    // Re-fetch the updated event/instances from Google and upsert them in
+    // place. (Previously this delete-then-recreate'd, which broke once local
+    // deletes became soft-cancels under the archival model and the
+    // feedId+externalEventId unique constraint was added.)
     const { event: updatedEvent, instances } = await getGoogleEvent(
       validatedEvent.feed.accountId,
       userId,
