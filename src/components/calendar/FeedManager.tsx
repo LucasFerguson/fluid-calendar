@@ -3,6 +3,11 @@ import { useCallback, useState } from "react";
 import { BsArrowRepeat, BsGoogle, BsMicrosoft, BsTrash } from "react-icons/bs";
 
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 import { cn } from "@/lib/utils";
 
@@ -11,9 +16,74 @@ import { useViewStore } from "@/store/calendar";
 
 import { MiniCalendar } from "./MiniCalendar";
 
+// Per-calendar color + background-opacity control. Opacity commits on release
+// (not on every drag step) so a slider drag makes one PATCH, not dozens.
+function FeedStyleControl({
+  feedId,
+  color,
+  opacity,
+  onCommit,
+}: {
+  feedId: string;
+  color: string;
+  opacity: number;
+  onCommit: (id: string, updates: { color?: string; opacity?: number }) => void;
+}) {
+  const [localOpacity, setLocalOpacity] = useState(opacity);
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          className="h-4 w-4 flex-shrink-0 rounded-full ring-1 ring-border"
+          style={{ backgroundColor: color, opacity: localOpacity }}
+          title="Calendar color & opacity"
+        />
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-56 space-y-3">
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-foreground">Color</label>
+          <input
+            type="color"
+            value={color}
+            onChange={(e) => onCommit(feedId, { color: e.target.value })}
+            className="h-8 w-full cursor-pointer rounded"
+          />
+        </div>
+        <div className="space-y-1">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-medium text-foreground">
+              Background opacity
+            </label>
+            <span className="text-xs tabular-nums text-muted-foreground">
+              {Math.round(localOpacity * 100)}%
+            </span>
+          </div>
+          <input
+            type="range"
+            min={0.1}
+            max={1}
+            step={0.05}
+            value={localOpacity}
+            onChange={(e) => setLocalOpacity(parseFloat(e.target.value))}
+            onPointerUp={() => onCommit(feedId, { opacity: localOpacity })}
+            onKeyUp={() => onCommit(feedId, { opacity: localOpacity })}
+            className="w-full"
+          />
+          <p className="text-[11px] text-muted-foreground">
+            Lower the opacity to turn a calendar into a faint base layer (e.g. a
+            daily time-blocking template) that other events sit on top of.
+          </p>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 export function FeedManager() {
   const [syncingFeeds, setSyncingFeeds] = useState<Set<string>>(new Set());
-  const { feeds, removeFeed, toggleFeed, syncFeed } = useCalendarStore();
+  const { feeds, removeFeed, toggleFeed, syncFeed, updateFeed } =
+    useCalendarStore();
   const { date: currentDate, setDate } = useViewStore();
 
   const handleRemoveFeed = useCallback(
@@ -64,11 +134,11 @@ export function FeedManager() {
                   onCheckedChange={() => toggleFeed(feed.id)}
                   className="h-4 w-4"
                 />
-                <div
-                  className="h-3 w-3 flex-shrink-0 rounded-full"
-                  style={{
-                    backgroundColor: feed.color || "hsl(var(--primary))",
-                  }}
+                <FeedStyleControl
+                  feedId={feed.id}
+                  color={feed.color || "#3b82f6"}
+                  opacity={feed.opacity ?? 1}
+                  onCommit={updateFeed}
                 />
                 <span className="calendar-name max-w-[150px] truncate text-sm text-foreground">
                   {feed.name}

@@ -12,6 +12,7 @@ import timeGridPlugin from "@fullcalendar/timegrid";
 
 import { TaskModal } from "@/components/tasks/TaskModal";
 
+import { getEventColors } from "@/lib/calendar-colors";
 import { getEventEditability } from "@/lib/calendar-drag";
 import { getSelectionRange } from "@/lib/calendar-selection";
 import { useEventModalStore } from "@/lib/commands/groups/calendar";
@@ -54,6 +55,7 @@ export function WeekView({ currentDate, onDateClick }: WeekViewProps) {
       location?: string;
       backgroundColor: string;
       borderColor: string;
+      textColor: string;
       allDay: boolean;
       classNames: string[];
       startEditable: boolean;
@@ -86,14 +88,14 @@ export function WeekView({ currentDate, onDateClick }: WeekViewProps) {
           start: newDate(item.start),
           end: newDate(item.end),
           location: item.location,
-          backgroundColor:
+          ...getEventColors(
             item.feedId === "tasks"
               ? item.color || "#4f46e5"
-              : feeds.find((f) => f.id === item.feedId)?.color || "#3b82f6",
-          borderColor:
+              : feeds.find((f) => f.id === item.feedId)?.color,
             item.feedId === "tasks"
-              ? item.color || "#4f46e5"
-              : feeds.find((f) => f.id === item.feedId)?.color || "#3b82f6",
+              ? 1
+              : feeds.find((f) => f.id === item.feedId)?.opacity
+          ),
           allDay: item.allDay,
           classNames: [
             item.extendedProps?.isTask ? "calendar-task" : "calendar-event",
@@ -227,7 +229,9 @@ export function WeekView({ currentDate, onDateClick }: WeekViewProps) {
     handleQuickViewClose();
   };
 
-  const handleQuickViewDelete = async () => {
+  const handleQuickViewDelete = async (
+    mode?: "single" | "series" | "thisAndFollowing"
+  ) => {
     if (!quickViewItem) return;
 
     if (isTask) {
@@ -236,15 +240,14 @@ export function WeekView({ currentDate, onDateClick }: WeekViewProps) {
         await useTaskStore.getState().deleteTask(quickViewItem.id);
         handleQuickViewClose();
       }
-    } else {
-      // It's an event
-      if (confirm("Are you sure you want to delete this event?")) {
-        await removeEvent(
-          quickViewItem.id,
-          quickViewItem.isRecurring ? "series" : "single"
-        );
-        handleQuickViewClose();
-      }
+    } else if (mode) {
+      // Chosen from the recurring-delete dialog, which is itself the
+      // confirmation, so delete directly with the selected mode.
+      await removeEvent(quickViewItem.id, mode);
+      handleQuickViewClose();
+    } else if (confirm("Are you sure you want to delete this event?")) {
+      await removeEvent(quickViewItem.id, "single");
+      handleQuickViewClose();
     }
   };
 

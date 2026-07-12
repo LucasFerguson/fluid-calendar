@@ -4,6 +4,7 @@ export interface CalendarFeed {
   url?: string; // Make optional since local calendar won't have URL
   type: "GOOGLE" | "OUTLOOK" | "CALDAV";
   color?: string;
+  opacity?: number | null; // Event background opacity 0..1
   enabled: boolean;
   lastSync?: Date;
   error?: string;

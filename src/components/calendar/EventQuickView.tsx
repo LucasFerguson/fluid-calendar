@@ -1,3 +1,6 @@
+import { useState } from "react";
+
+import * as AlertDialog from "@radix-ui/react-alert-dialog";
 import { HiCheck, HiPencil, HiTrash } from "react-icons/hi";
 import {
   IoCalendarOutline,
@@ -14,6 +17,7 @@ import { format, isFutureDate, newDate } from "@/lib/date-utils";
 import { isTaskOverdue } from "@/lib/task-utils";
 import { cn } from "@/lib/utils";
 
+import { Button } from "@/components/ui/button";
 import {
   Popover,
   PopoverContent,
@@ -39,7 +43,7 @@ interface EventQuickViewProps {
   })
   | (Task & { project?: { name: string; color?: string | null } | null });
   onEdit: () => void;
-  onDelete: () => void;
+  onDelete: (mode?: "single" | "series" | "thisAndFollowing") => void;
   isTask: boolean;
   onStatusChange?: (taskId: string, status: TaskStatus) => void;
   referenceElement: HTMLElement | null;
@@ -63,6 +67,7 @@ export function EventQuickView({
   onStatusChange,
   referenceElement,
 }: EventQuickViewProps) {
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const getStatusColor = (status: string | undefined) => {
     switch (status?.toUpperCase()) {
       case "ACCEPTED":
@@ -167,7 +172,15 @@ export function EventQuickView({
                 <HiPencil className="h-4 w-4" />
               </button>
               <button
-                onClick={onDelete}
+                onClick={() => {
+                  // Recurring events get Google's three-way choice; everything
+                  // else falls through to the caller's own delete handling.
+                  if (!isTask && eventItem?.isRecurring) {
+                    setShowDeleteDialog(true);
+                  } else {
+                    onDelete();
+                  }
+                }}
                 className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-destructive"
                 title="Delete"
               >
@@ -368,6 +381,64 @@ export function EventQuickView({
           )}
         </div>
       </PopoverContent>
+
+      {/* Recurring Event Delete Dialog (Google's three-way choice) */}
+      <AlertDialog.Root
+        open={showDeleteDialog}
+        onOpenChange={setShowDeleteDialog}
+      >
+        <AlertDialog.Portal>
+          <AlertDialog.Overlay className="fixed inset-0 z-[10001] bg-background/80 backdrop-blur-sm" />
+          <AlertDialog.Content className="fixed left-1/2 top-1/2 z-[10002] w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-lg border bg-background p-6 shadow-lg">
+            <AlertDialog.Title className="mb-4 text-lg font-semibold">
+              Delete recurring event
+            </AlertDialog.Title>
+            <AlertDialog.Description className="mb-6 text-sm text-muted-foreground">
+              Delete only this occurrence, this and all following occurrences,
+              or the entire series?
+            </AlertDialog.Description>
+            <div className="flex flex-col gap-2">
+              <Button
+                variant="outline"
+                className="justify-start"
+                onClick={() => {
+                  setShowDeleteDialog(false);
+                  onDelete("single");
+                }}
+              >
+                This event
+              </Button>
+              <Button
+                variant="outline"
+                className="justify-start"
+                onClick={() => {
+                  setShowDeleteDialog(false);
+                  onDelete("thisAndFollowing");
+                }}
+              >
+                This and following events
+              </Button>
+              <Button
+                variant="outline"
+                className="justify-start"
+                onClick={() => {
+                  setShowDeleteDialog(false);
+                  onDelete("series");
+                }}
+              >
+                All events
+              </Button>
+              <Button
+                variant="ghost"
+                className="mt-1 self-end"
+                onClick={() => setShowDeleteDialog(false)}
+              >
+                Cancel
+              </Button>
+            </div>
+          </AlertDialog.Content>
+        </AlertDialog.Portal>
+      </AlertDialog.Root>
     </Popover>
   );
 }

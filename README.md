@@ -17,6 +17,41 @@ This project is in active development and currently contains many bugs and incom
 
 Your bug reports help make FluidCalendar better! We appreciate your patience and contributions as we work to stabilize the platform.
 
+## This Fork — Sovereign Full-Archival Calendar
+
+This is a personal fork maintained by **Lucas Ferguson**, who, with the help of agentic coding tools, implemented the following additional features relative to the upstream project. The theme of the fork is turning FluidCalendar from a rolling-window Google Calendar view into a **sovereign, full-archival mirror** of a Google account — every event across every year, pulled down and kept locally forever with a complete audit trail.
+
+**Full-archival Google sync**
+
+- Replaced the rolling current-year window with an unbounded, throttled **full-history backfill** of every event across every year, followed by continuous **incremental sync** using Google's `nextSyncToken` (with automatic full resync on 410 token expiry).
+- Sync runs **automatically in the background from server startup** — no "sync" button required — paced to stay well under Google's API quotas.
+- The old destructive delete-all-and-reinsert sync path is gone: writes are now **idempotent upserts** keyed on `(feedId, externalEventId)`, and recurring-event master/RRULE fidelity is preserved on every sync.
+- **Deletions are never lost**: events deleted upstream are archived as `status = cancelled` rather than removed.
+- **Append-only audit trail**: every observed create/update/cancellation is recorded in a `CalendarEventChange` table, plus a disk-based NDJSON operational log under `logs/google-calendar-sync/` that can be pruned by simply deleting old files.
+- Original event timezones are preserved (`CalendarEvent.timeZone`).
+
+**Recurring events**
+
+- Added Google's **"delete this and following events"** option (truncates the series' RRULE with `UNTIL`), alongside single-occurrence and whole-series deletes, in both the event modal and the quick-view popup.
+- The event modal groups recurrence controls with the time fields and shows series info (start date, days-ago, occurrence count).
+
+**Statistics dashboard** (new "Statistics" tab)
+
+- Hero stats (events archived, years of history, calendars, audit entries, deletions preserved), a **weekday × hour heatmap** of when events happen, events-per-year and per-calendar breakdowns.
+- A **live sync panel** that auto-refreshes while the tab is open, showing per-calendar backfill/sync status and a real-time feed of calendar changes flowing down from Google.
+
+**Calendar styling**
+
+- Per-calendar **color override** (color picker) and **background-opacity** control — e.g. fade a calendar into a faint always-on time-blocking base layer.
+- **Auto-contrasting event text** (black/white chosen per background) so events stay legible on any calendar color.
+
+**Operational**
+
+- Nightly `pg_dump` database backup (systemd timer) and a systemd service unit for the app; a script to safely retire the previous instance.
+- Design notes and future ideas in [`docs/archival-sync-design.md`](docs/archival-sync-design.md).
+
+---
+
 ## About
 
 FluidCalendar is built for people who want full control over their scheduling workflow. It combines the power of automatic task scheduling with the flexibility of open-source software. Read more about the journey and motivation in [Part 1 of my blog series](https://medium.com/front-end-weekly/fluid-calendar-an-open-source-alternative-to-motion-part-1-7a5b52bf219d).
