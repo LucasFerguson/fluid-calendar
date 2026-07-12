@@ -1,0 +1,14 @@
+[Unit]
+Description=FluidCalendar (archival fork, /root/fluid-calendar)
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Restart=always
+RestartSec=5
+WorkingDirectory=/root/fluid-calendar
+EnvironmentFile=/root/fluid-calendar/.env
+ExecStart=/usr/bin/npm run start
+
+[Install]
+WantedBy=multi-user.target
