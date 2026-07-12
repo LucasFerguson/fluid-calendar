@@ -7,12 +7,23 @@ import { Settings } from "@/types/settings";
 
 const LOG_SOURCE = "SettingsStore";
 
+export interface ConnectedCalendarSummary {
+  id: string;
+  name: string;
+  color?: string | null;
+  enabled: boolean;
+  lastSync?: string | null;
+  backfillComplete?: boolean;
+  backfillCursor?: string | null;
+  backfillError?: string | null;
+}
+
 interface ConnectedAccount {
   id: string;
   provider: "GOOGLE" | "OUTLOOK" | "CALDAV";
   email: string;
   caldavUrl?: string | null;
-  calendars: Array<{ id: string; name: string }>;
+  calendars: ConnectedCalendarSummary[];
 }
 
 interface SettingsStore extends Settings {

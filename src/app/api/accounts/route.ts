@@ -25,7 +25,14 @@ export async function GET(request: NextRequest) {
           select: {
             id: true,
             name: true,
+            color: true,
+            enabled: true,
+            lastSync: true,
+            backfillComplete: true,
+            backfillCursor: true,
+            backfillError: true,
           },
+          orderBy: { name: "asc" },
         },
       },
     });

@@ -15,12 +15,40 @@ import {
 
 import { logger } from "@/lib/logger";
 
-import { useSettingsStore } from "@/store/settings";
+import {
+  ConnectedCalendarSummary,
+  useSettingsStore,
+} from "@/store/settings";
 
 import { AvailableCalendars } from "./AvailableCalendars";
 import { CalDAVAccountForm } from "./CalDAVAccountForm";
 
 const LOG_SOURCE = "AccountManager";
+
+function calendarSyncStatus(calendar: ConnectedCalendarSummary): {
+  label: string;
+  variant: "default" | "secondary" | "destructive" | "outline";
+} {
+  if (calendar.backfillError) {
+    return { label: "backfill error", variant: "destructive" };
+  }
+  if (!calendar.enabled) {
+    return { label: "disabled", variant: "outline" };
+  }
+  if (!calendar.backfillComplete) {
+    return {
+      label: calendar.backfillCursor ? "backfilling…" : "backfill queued",
+      variant: "secondary",
+    };
+  }
+  if (calendar.lastSync) {
+    return {
+      label: `synced ${new Date(calendar.lastSync).toLocaleString()}`,
+      variant: "outline",
+    };
+  }
+  return { label: "archived", variant: "outline" };
+}
 
 interface IntegrationStatus {
   google: { configured: boolean };
@@ -190,8 +218,9 @@ export function AccountManager() {
                           variant="outline"
                           onClick={() => toggleAvailableCalendars(account.id)}
                         >
-                          {showAvailableFor === account.id ? "Hide" : "Show"}{" "}
-                          Calendars
+                          {showAvailableFor === account.id
+                            ? "Hide Available"
+                            : "Add Calendars"}
                         </Button>
                         <Button
                           variant="destructive"
@@ -202,6 +231,45 @@ export function AccountManager() {
                         </Button>
                       </div>
                     </div>
+
+                    {account.calendars.length > 0 && (
+                      <div className="mt-4 space-y-1 border-t pt-4">
+                        {account.calendars.map((calendar) => {
+                          const status = calendarSyncStatus(calendar);
+                          return (
+                            <div
+                              key={calendar.id}
+                              className="flex flex-wrap items-center justify-between gap-2 rounded-md px-2 py-1.5 hover:bg-muted/50"
+                            >
+                              <div className="flex min-w-0 items-center gap-2">
+                                <span
+                                  className="h-3 w-3 shrink-0 rounded-full border"
+                                  style={{
+                                    backgroundColor:
+                                      calendar.color || "#3b82f6",
+                                  }}
+                                />
+                                <span className="truncate text-sm">
+                                  {calendar.name}
+                                </span>
+                              </div>
+                              <Badge
+                                variant={status.variant}
+                                className="shrink-0 text-xs font-normal"
+                                title={
+                                  calendar.backfillError ||
+                                  (calendar.backfillCursor
+                                    ? `archive reaches back to ${new Date(calendar.backfillCursor).toLocaleDateString()}`
+                                    : undefined)
+                                }
+                              >
+                                {status.label}
+                              </Badge>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
                 {showAvailableFor === account.id && (
