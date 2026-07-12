@@ -11,7 +11,8 @@ import { FeedManager } from "@/components/calendar/FeedManager";
 import { MonthView } from "@/components/calendar/MonthView";
 import { MultiMonthView } from "@/components/calendar/MultiMonthView";
 import { WeekView } from "@/components/calendar/WeekView";
-import { SponsorshipBanner } from "@/components/ui/sponsorship-banner";
+// Sponsorship banner hidden in this self-hosted fork.
+// import { SponsorshipBanner } from "@/components/ui/sponsorship-banner";
 
 import { addDays, formatDate, newDate, subDays } from "@/lib/date-utils";
 import { isSaasEnabled } from "@/lib/config";
@@ -112,7 +113,7 @@ export function Calendar({
           </div>
 
           {/* Sponsorship Banner */}
-          <SponsorshipBanner />
+          {/* <SponsorshipBanner /> */}
         </div>
       </aside>
 

@@ -10,6 +10,13 @@ const LOG_SOURCE = "StatsAPI";
 // done in Postgres (no event rows cross the wire). Timestamps are stored as
 // naive UTC, so hour/day/year extraction reinterprets them in the user's
 // timezone: (start AT TIME ZONE 'UTC') AT TIME ZONE <tz>.
+//
+// TODO(stats-filter): accept an optional ?calendarIds= filter and AND it into
+// every aggregation. Subscribed/imported calendars (US Holidays, school
+// schedules) pile many same-time events onto the heatmap and inflate the
+// per-year counts, drowning out the user's own calendars; a calendar filter
+// (default: personal/owned calendars only) would make the "when your events
+// happen" view reflect actual behavior rather than subscription noise.
 
 interface CountRow {
   count: bigint;
