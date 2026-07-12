@@ -99,35 +99,59 @@ export async function deleteCalendarEvent(
     throw new Error("Event not found");
   }
 
-  if (mode === "series") {
-    // Delete the event and any related instances from our database
-    if (event.isMaster || !event.masterEventId) {
-      //deleting the master event will cascade to all instances
-      await prisma.calendarEvent.delete({
-        where: {
-          id: event.id,
-        },
+  // Google feeds are a full archive: locally-initiated deletes soft-cancel
+  // the rows (mirroring how provider-side deletes arrive as status
+  // "cancelled") so history is never removed. Other feed types keep the
+  // original hard-delete semantics.
+  const softCancel = event.feed.type === "GOOGLE";
+
+  if (softCancel && event.externalEventId) {
+    // The incremental sync will later observe this cancellation as
+    // "unchanged" (the row is already cancelled), so record the audit-log
+    // entry for the locally-initiated delete here.
+    await prisma.calendarEventChange.create({
+      data: {
+        feedId: event.feedId,
+        externalEventId: event.externalEventId,
+        changeType: "CANCELLED",
+        changeData: { status: "cancelled", origin: "local-delete", mode },
+        source: "MANUAL",
+      },
+    });
+  }
+
+  const removeById = async (id: string) => {
+    if (softCancel) {
+      await prisma.calendarEvent.update({
+        where: { id },
+        data: { status: "cancelled" },
       });
     } else {
-      const masterEvent = await prisma.calendarEvent.findFirst({
-        where: {
-          id: event.masterEventId,
-        },
+      await prisma.calendarEvent.delete({ where: { id } });
+    }
+  };
+
+  if (mode === "series") {
+    // Remove the event and any related instances from our database
+    const masterId =
+      event.isMaster || !event.masterEventId ? event.id : event.masterEventId;
+    if (softCancel) {
+      // Cancelling doesn't cascade like a delete; cancel instances too.
+      await prisma.calendarEvent.updateMany({
+        where: { OR: [{ id: masterId }, { masterEventId: masterId }] },
+        data: { status: "cancelled" },
       });
+    } else {
       //deleting the master event will cascade to all instances
       await prisma.calendarEvent.delete({
         where: {
-          id: masterEvent?.id,
+          id: masterId,
         },
       });
     }
   } else {
-    //delete a single instance
-    await prisma.calendarEvent.delete({
-      where: {
-        id: event.id,
-      },
-    });
+    //remove a single instance
+    await removeById(event.id);
   }
 
   return event;

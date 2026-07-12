@@ -42,6 +42,16 @@ export async function POST(
       return NextResponse.json({ error: "Feed not found" }, { status: 404 });
     }
 
+    // Google feeds are managed exclusively by the archival sync engine
+    // (idempotent upserts, append-only change log). This endpoint's
+    // delete-all-and-reinsert would destroy archived history.
+    if (feed.type === "GOOGLE") {
+      return NextResponse.json(
+        { error: "Google feeds are synced by the background archival engine" },
+        { status: 409 }
+      );
+    }
+
     // Start a transaction to ensure data consistency
     await prisma.$transaction(async (tx) => {
       // Delete existing events for this feed

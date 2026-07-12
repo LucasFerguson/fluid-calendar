@@ -19,12 +19,15 @@ export async function GET(request: NextRequest) {
 
     logger.debug("Fetching events from database...", {}, LOG_SOURCE);
 
-    // Get events from feeds that belong to the current user
+    // Get events from feeds that belong to the current user. Events deleted
+    // on the provider side are archived as status "cancelled" rather than
+    // removed, so the UI projection must exclude them here.
     const events = await prisma.calendarEvent.findMany({
       where: {
         feed: {
           userId,
         },
+        OR: [{ status: null }, { status: { not: "cancelled" } }],
       },
       include: {
         feed: {
