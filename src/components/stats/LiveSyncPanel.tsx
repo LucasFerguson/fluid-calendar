@@ -82,8 +82,50 @@ export function LiveSyncPanel({ data }: { data: LiveResponse | undefined }) {
     );
   }
 
+  const active = data.progress?.feeds.filter((f) => f.phase !== "idle") ?? [];
+  const nextTickAt = data.progress?.nextTickAt ?? null;
+  const secsToTick =
+    nextTickAt != null ? Math.max(0, Math.round((nextTickAt - now) / 1000)) : null;
+
+  const PHASE_LABEL: Record<string, string> = {
+    backfill: "Full backfill",
+    incremental: "Incremental sync",
+    horizon: "Horizon refresh",
+  };
+
   return (
-    <div className="grid gap-6 md:grid-cols-2">
+    <div className="space-y-4">
+      {/* Live engine status: what the sync is doing right now + next tick. */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-muted/30 px-3 py-2 text-sm">
+        {active.length > 0 ? (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            {active.map((f) => (
+              <span key={f.feedId} className="flex items-center gap-2">
+                <span className="relative flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-500 opacity-75" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-blue-500" />
+                </span>
+                <span className="font-medium">{PHASE_LABEL[f.phase]}</span>
+                <span className="text-muted-foreground">
+                  {f.feedName} · page {f.page}
+                  {f.eventsThisRun > 0
+                    ? ` · +${f.eventsThisRun.toLocaleString()} new`
+                    : ""}
+                </span>
+              </span>
+            ))}
+          </div>
+        ) : (
+          <span className="text-muted-foreground">Sync engine idle</span>
+        )}
+        {secsToTick != null && active.length === 0 && (
+          <span className="font-mono text-xs tabular-nums text-muted-foreground">
+            next check in {secsToTick}s
+          </span>
+        )}
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-2">
       <div>
         <div className="mb-2 text-sm font-medium">Calendars</div>
         <div className="divide-y divide-border">
@@ -141,6 +183,7 @@ export function LiveSyncPanel({ data }: { data: LiveResponse | undefined }) {
             </div>
           )}
         </div>
+      </div>
       </div>
     </div>
   );

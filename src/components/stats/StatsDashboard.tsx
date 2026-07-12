@@ -10,6 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
+import { AnimatedNumber } from "./AnimatedNumber";
 import { CalendarBreakdown } from "./CalendarBreakdown";
 import { HourWeekHeatmap } from "./HourWeekHeatmap";
 import { LiveSyncPanel } from "./LiveSyncPanel";
@@ -36,6 +37,9 @@ export function StatsDashboard() {
   const stats = useQuery<StatsResponse>({
     queryKey: ["stats"],
     queryFn: () => fetchJson<StatsResponse>("/api/stats"),
+    // Refresh periodically so the counters climb as the archive grows; the
+    // AnimatedNumber tiles tween to each new value. Pauses when tab unfocused.
+    refetchInterval: 15000,
   });
 
   // Live panel polls every 5s. TanStack Query pauses refetchInterval while the
@@ -64,7 +68,7 @@ export function StatsDashboard() {
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
         <StatTile
           label="Events archived"
-          value={(totals?.events ?? 0).toLocaleString()}
+          value={<AnimatedNumber value={totals?.events ?? 0} />}
           accent
         />
         <StatTile
@@ -78,16 +82,18 @@ export function StatsDashboard() {
         />
         <StatTile
           label="Calendars"
-          value={(stats.data?.perCalendar.length ?? 0).toLocaleString()}
+          value={
+            <AnimatedNumber value={stats.data?.perCalendar.length ?? 0} />
+          }
         />
         <StatTile
           label="Audit entries"
-          value={(totals?.auditEntries ?? 0).toLocaleString()}
+          value={<AnimatedNumber value={totals?.auditEntries ?? 0} />}
           sublabel="every change recorded"
         />
         <StatTile
           label="Deletions preserved"
-          value={(totals?.cancelled ?? 0).toLocaleString()}
+          value={<AnimatedNumber value={totals?.cancelled ?? 0} />}
           sublabel="kept, not lost"
         />
       </div>

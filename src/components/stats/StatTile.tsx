@@ -1,8 +1,10 @@
+import { ReactNode } from "react";
+
 import { Card, CardContent } from "@/components/ui/card";
 
 interface Props {
   label: string;
-  value: string;
+  value: ReactNode;
   sublabel?: string;
   accent?: boolean;
 }

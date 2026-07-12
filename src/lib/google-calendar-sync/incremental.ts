@@ -6,6 +6,7 @@ import { getGoogleCalendarClient } from "@/lib/google-calendar";
 import { prisma } from "@/lib/prisma";
 
 import { isSyncTokenGone, pacedCall } from "./rate-limiter";
+import { reportProgress } from "./sync-progress";
 import { syncLog } from "./sync-logger";
 import { findMasterId, upsertGoogleEvent } from "./upsert";
 
@@ -75,6 +76,12 @@ export async function runIncremental(
           ).data
       );
       result.pages++;
+      reportProgress(feed.id, {
+        feedName: feed.name,
+        phase: "incremental",
+        page: result.pages,
+        eventsThisRun: result.created + result.updated,
+      });
 
       for (const event of res.items || []) {
         // A changed instance of a series we have never archived (e.g. a

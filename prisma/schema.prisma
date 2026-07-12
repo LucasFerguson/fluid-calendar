@@ -96,6 +96,7 @@ model User {
   taskProviders        TaskProvider[]
   TaskChange           TaskChange[]
   PasswordReset        PasswordReset[]
+  apiKeys              ApiKey[]
 }
 
 model VerificationToken {
@@ -104,6 +105,25 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+}
+
+// Machine API keys for homelab integrations. The raw key is shown once at
+// creation; only a SHA-256 hash is stored. `prefix` is the first few
+// characters, kept for display so a user can identify a key without seeing it.
+model ApiKey {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name       String
+  keyHash    String    @unique
+  prefix     String
+  scopes     String    @default("read") // "read" | "read,write"
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+  revokedAt  DateTime?
+
+  @@index([userId])
+  @@index([keyHash])
 }
 
 model CalendarFeed {
@@ -124,6 +144,10 @@ model CalendarFeed {
   backfillCursor    DateTime? // null = backfill not started
   backfillComplete  Boolean           @default(false)
   backfillError     String?
+  // Last time a forward-windowed re-list materialized newly-in-horizon
+  // occurrences of open-ended recurring series (Google only expands ~2 years
+  // ahead; this rolls the window forward as time passes).
+  lastHorizonRefresh DateTime?
   channelId         String? // Google Calendar webhook channel ID
   resourceId        String? // Google Calendar webhook resource ID
   channelExpiration DateTime? // When the webhook expires

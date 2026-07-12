@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { authenticateRequest } from "@/lib/auth/api-auth";
+import { getSyncProgress } from "@/lib/google-calendar-sync/sync-progress";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 
@@ -50,8 +51,11 @@ export async function GET(request: NextRequest) {
       }),
     ]);
 
+    const progress = getSyncProgress();
+
     return NextResponse.json({
       now: new Date().toISOString(),
+      progress,
       feeds: feeds.map(({ _count, ...f }) => ({
         ...f,
         eventCount: _count.events,

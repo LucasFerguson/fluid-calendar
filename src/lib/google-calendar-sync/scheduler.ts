@@ -1,7 +1,9 @@
 import { prisma } from "@/lib/prisma";
 
 import { runBackfill } from "./backfill";
+import { horizonRefreshDue, runHorizonRefresh } from "./horizon";
 import { runIncremental } from "./incremental";
+import { reportProgress, setTickTiming } from "./sync-progress";
 import { syncLog } from "./sync-logger";
 
 // Background scheduler for the Google Calendar archival sync. Started once
@@ -72,6 +74,9 @@ async function tick(): Promise<void> {
           const result = await runIncremental(feed);
           if (result.resetToFull) {
             state.resyncAfter.set(feed.id, Date.now() + RESYNC_COOLDOWN_MS);
+          } else if (horizonRefreshDue(feed)) {
+            // Roll the forward window so open-ended series keep materializing.
+            await runHorizonRefresh(feed);
           }
         } else {
           // Completed but token missing (shouldn't happen): redo backfill.
@@ -83,6 +88,8 @@ async function tick(): Promise<void> {
       } catch (error) {
         // Logged by backfill/incremental; keep going with the other feeds.
         void error;
+      } finally {
+        reportProgress(feed.id, { feedName: feed.name, phase: "idle" });
       }
     }
   } catch (error) {
@@ -91,6 +98,7 @@ async function tick(): Promise<void> {
     });
   } finally {
     state.ticking = false;
+    setTickTiming(Date.now(), Date.now() + TICK_INTERVAL_MS);
   }
 }
 
@@ -103,6 +111,7 @@ export function startGoogleCalendarSyncScheduler(): void {
     tickIntervalMs: TICK_INTERVAL_MS,
   });
 
+  setTickTiming(Date.now(), Date.now() + FIRST_TICK_DELAY_MS);
   setTimeout(() => void tick(), FIRST_TICK_DELAY_MS);
   setInterval(() => void tick(), TICK_INTERVAL_MS);
 }

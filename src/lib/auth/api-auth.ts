@@ -1,27 +1,57 @@
 import { getToken } from "next-auth/jwt";
 import { NextRequest, NextResponse } from "next/server";
 
+import { apiKeyFromHeaders, hashApiKey } from "@/lib/auth/api-key";
 import { logger } from "@/lib/logger";
+import { prisma } from "@/lib/prisma";
 
 const LOG_SOURCE = "APIAuth";
 
+const MUTATION_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
 /**
- * Authenticates a request and returns the user ID if authenticated
- * @param request The NextRequest object
- * @param logSource The source for logging
+ * Authenticates a request and returns the user ID if authenticated.
+ *
+ * Two auth methods are accepted:
+ *  - A machine API key via `Authorization: Bearer fc_...` or `X-API-Key`
+ *    (for homelab integrations). Read-only keys may only make GET requests.
+ *  - The NextAuth session (browser). Used when no API key is presented.
+ *
  * @returns An object with userId if authenticated, or a NextResponse if unauthorized
  */
 export async function authenticateRequest(
   request: NextRequest,
   logSource: string
 ) {
-  // Get the user token from the request
+  // 1. API key path (machine clients).
+  const presentedKey = apiKeyFromHeaders(request.headers);
+  if (presentedKey) {
+    const key = await prisma.apiKey.findUnique({
+      where: { keyHash: hashApiKey(presentedKey) },
+    });
+    if (!key || key.revokedAt) {
+      logger.warn("Invalid or revoked API key", {}, logSource);
+      return { response: new NextResponse("Unauthorized", { status: 401 }) };
+    }
+    const canWrite = key.scopes.split(",").includes("write");
+    if (MUTATION_METHODS.has(request.method) && !canWrite) {
+      return {
+        response: new NextResponse("API key is read-only", { status: 403 }),
+      };
+    }
+    // Best-effort last-used stamp; never block the request on it.
+    void prisma.apiKey
+      .update({ where: { id: key.id }, data: { lastUsedAt: new Date() } })
+      .catch(() => undefined);
+    return { userId: key.userId };
+  }
+
+  // 2. Session path (browser).
   const token = await getToken({
     req: request,
     secret: process.env.NEXTAUTH_SECRET,
   });
 
-  // If there's no token, return unauthorized
   if (!token) {
     logger.warn("Unauthorized access attempt to API", {}, logSource);
     return { response: new NextResponse("Unauthorized", { status: 401 }) };

@@ -6,6 +6,7 @@ import { getGoogleCalendarClient } from "@/lib/google-calendar";
 import { prisma } from "@/lib/prisma";
 
 import { pacedCall } from "./rate-limiter";
+import { reportProgress } from "./sync-progress";
 import { syncLog } from "./sync-logger";
 import { findMasterId, upsertGoogleEvent } from "./upsert";
 
@@ -85,6 +86,12 @@ export async function runBackfill(feed: CalendarFeed): Promise<BackfillResult> {
           ).data
       );
       result.pages++;
+      reportProgress(feed.id, {
+        feedName: feed.name,
+        phase: "backfill",
+        page: result.pages,
+        eventsThisRun: result.created,
+      });
 
       for (const event of res.items || []) {
         // Recurrence exceptions surface here too; they are handled in the
@@ -121,6 +128,12 @@ export async function runBackfill(feed: CalendarFeed): Promise<BackfillResult> {
           ).data
       );
       result.pages++;
+      reportProgress(feed.id, {
+        feedName: feed.name,
+        phase: "backfill",
+        page: result.pages,
+        eventsThisRun: result.created,
+      });
 
       for (const event of res.items || []) {
         trackOldest(event);

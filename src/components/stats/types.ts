@@ -38,8 +38,24 @@ export interface LiveActivity {
   calendarColor: string | null;
 }
 
+export interface FeedSyncProgress {
+  feedId: string;
+  feedName: string;
+  phase: "idle" | "backfill" | "incremental" | "horizon";
+  page: number;
+  eventsThisRun: number;
+  updatedAt: number;
+}
+
+export interface SyncProgress {
+  feeds: FeedSyncProgress[];
+  nextTickAt: number | null;
+  lastTickAt: number | null;
+}
+
 export interface LiveResponse {
   now: string;
+  progress: SyncProgress;
   feeds: LiveFeed[];
   recentActivity: LiveActivity[];
 }
