@@ -118,10 +118,16 @@ model CalendarFeed {
   lastSync          DateTime?
   syncToken         String? // For incremental sync
   error             String?
+  // Archival backfill progress (Google feeds): the walker moves backward in
+  // time in bounded chunks; cursor is the oldest point reached so far.
+  backfillCursor    DateTime? // null = backfill not started
+  backfillComplete  Boolean           @default(false)
+  backfillError     String?
   channelId         String? // Google Calendar webhook channel ID
   resourceId        String? // Google Calendar webhook resource ID
   channelExpiration DateTime? // When the webhook expires
   events            CalendarEvent[]
+  eventChanges      CalendarEventChange[]
   userId            String?
   user              User?             @relation(fields: [userId], references: [id])
   accountId         String?
@@ -143,6 +149,7 @@ model CalendarEvent {
   start           DateTime
   end             DateTime
   location        String?
+  timeZone        String? // Original IANA timezone from the provider (Google start.timeZone)
   isRecurring     Boolean      @default(false)
   recurrenceRule  String?
   allDay          Boolean      @default(false)
@@ -162,11 +169,34 @@ model CalendarEvent {
   instances        CalendarEvent[] @relation("EventInstances")
   recurringEventId String? // Google Calendar's recurring event ID
 
+  // Event identity within a feed. Backfill/incremental sync upserts on this
+  // pair; nothing may create duplicate rows for the same external event.
+  @@unique([feedId, externalEventId])
   @@index([feedId])
   @@index([start, end])
   @@index([externalEventId])
   @@index([masterEventId])
   @@index([recurringEventId])
+}
+
+// Append-only audit trail of every change the calendar sync observes.
+// One row per observed create/update/cancellation, storing the raw provider
+// payload as a full snapshot. Rows are never updated or deleted by the app;
+// current state (CalendarEvent) is a projection of this log.
+model CalendarEventChange {
+  id              String       @id @default(cuid())
+  feedId          String
+  feed            CalendarFeed @relation(fields: [feedId], references: [id], onDelete: Cascade)
+  externalEventId String
+  changeType      String // 'CREATE', 'UPDATE', 'CANCELLED'
+  changeData      Json // Raw provider event payload as observed (full snapshot)
+  source          String // 'BACKFILL', 'INCREMENTAL', 'MANUAL'
+  timestamp       DateTime     @default(now())
+
+  @@index([feedId])
+  @@index([externalEventId])
+  @@index([timestamp])
+  @@index([changeType])
 }
 
 model Project {
