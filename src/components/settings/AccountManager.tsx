@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, AlertTriangle } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -12,6 +12,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 import { logger } from "@/lib/logger";
 
@@ -28,7 +36,7 @@ const LOG_SOURCE = "AccountManager";
 function calendarSyncStatus(calendar: ConnectedCalendarSummary): {
   label: string;
   variant: "default" | "secondary" | "destructive" | "outline";
-} {
+} | null {
   if (calendar.backfillError) {
     return { label: "backfill error", variant: "destructive" };
   }
@@ -42,12 +50,43 @@ function calendarSyncStatus(calendar: ConnectedCalendarSummary): {
     };
   }
   if (calendar.lastSync) {
-    return {
-      label: `synced ${new Date(calendar.lastSync).toLocaleString()}`,
-      variant: "outline",
-    };
+    return null; // healthy: the live SyncAgeCounter is shown instead
   }
   return { label: "archived", variant: "outline" };
+}
+
+function formatSyncAge(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const seconds = totalSeconds % 60;
+  const minutes = Math.floor(totalSeconds / 60) % 60;
+  const hours = Math.floor(totalSeconds / 3600);
+  if (hours > 0) return `${hours}h ${minutes}m ago`;
+  if (minutes > 0) return `${minutes}m ${seconds}s ago`;
+  return `${seconds}s ago`;
+}
+
+/** Live counter of time since the last sync, ticking every second. */
+function SyncAgeCounter({ lastSync }: { lastSync: string }) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  return (
+    <Badge
+      variant="outline"
+      className="shrink-0 font-mono text-xs font-normal tabular-nums"
+      title={`last synced ${new Date(lastSync).toLocaleString()}`}
+    >
+      synced {formatSyncAge(now - new Date(lastSync).getTime())}
+    </Badge>
+  );
+}
+
+function formatCount(n: number | undefined): string {
+  return (n ?? 0).toLocaleString();
 }
 
 interface IntegrationStatus {
@@ -59,6 +98,8 @@ export function AccountManager() {
   const { accounts, refreshAccounts, removeAccount } = useSettingsStore();
   const [showAvailableFor, setShowAvailableFor] = useState<string | null>(null);
   const [showCalDAVForm, setShowCalDAVForm] = useState(false);
+  const [removeTargetId, setRemoveTargetId] = useState<string | null>(null);
+  const [isRemoving, setIsRemoving] = useState(false);
   const [integrationStatus, setIntegrationStatus] = useState<IntegrationStatus>(
     {
       google: { configured: false },
@@ -97,11 +138,15 @@ export function AccountManager() {
     }
   };
 
-  const handleRemove = async (accountId: string) => {
+  const handleConfirmedRemove = async (accountId: string) => {
     try {
+      setIsRemoving(true);
       await removeAccount(accountId);
+      setRemoveTargetId(null);
     } catch (error) {
       console.error("Failed to remove account:", error);
+    } finally {
+      setIsRemoving(false);
     }
   };
 
@@ -115,6 +160,18 @@ export function AccountManager() {
     setShowCalDAVForm(false);
     refreshAccounts();
   };
+
+  const removeTarget = accounts?.find((a) => a.id === removeTargetId) ?? null;
+  const removeEventTotal =
+    removeTarget?.calendars.reduce(
+      (sum, c) => sum + (c.eventCount ?? 0),
+      0
+    ) ?? 0;
+  const removeChangeTotal =
+    removeTarget?.calendars.reduce(
+      (sum, c) => sum + (c.changeCount ?? 0),
+      0
+    ) ?? 0;
 
   return (
     <div className="space-y-6">
@@ -225,9 +282,9 @@ export function AccountManager() {
                         <Button
                           variant="destructive"
                           size="sm"
-                          onClick={() => handleRemove(account.id)}
+                          onClick={() => setRemoveTargetId(account.id)}
                         >
-                          Remove
+                          Remove…
                         </Button>
                       </div>
                     </div>
@@ -252,19 +309,32 @@ export function AccountManager() {
                                 <span className="truncate text-sm">
                                   {calendar.name}
                                 </span>
+                                <span
+                                  className="shrink-0 text-xs text-muted-foreground"
+                                  title={
+                                    calendar.backfillCursor
+                                      ? `${formatCount(calendar.changeCount)} audit entries · archive reaches back to ${new Date(calendar.backfillCursor).toLocaleDateString()}`
+                                      : `${formatCount(calendar.changeCount)} audit entries`
+                                  }
+                                >
+                                  {formatCount(calendar.eventCount)} events
+                                </span>
                               </div>
-                              <Badge
-                                variant={status.variant}
-                                className="shrink-0 text-xs font-normal"
-                                title={
-                                  calendar.backfillError ||
-                                  (calendar.backfillCursor
-                                    ? `archive reaches back to ${new Date(calendar.backfillCursor).toLocaleDateString()}`
-                                    : undefined)
-                                }
-                              >
-                                {status.label}
-                              </Badge>
+                              {status ? (
+                                <Badge
+                                  variant={status.variant}
+                                  className="shrink-0 text-xs font-normal"
+                                  title={calendar.backfillError || undefined}
+                                >
+                                  {status.label}
+                                </Badge>
+                              ) : (
+                                calendar.lastSync && (
+                                  <SyncAgeCounter
+                                    lastSync={calendar.lastSync}
+                                  />
+                                )
+                              )}
                             </div>
                           );
                         })}
@@ -287,6 +357,74 @@ export function AccountManager() {
           </div>
         </CardContent>
       </Card>
+
+      <Dialog
+        open={removeTargetId !== null}
+        onOpenChange={(open) => {
+          if (!open) setRemoveTargetId(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="h-5 w-5" />
+              Erase all calendar history?
+            </DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-3 pt-2 text-sm">
+                <p>
+                  This permanently deletes the local archive for{" "}
+                  <span className="font-medium text-foreground">
+                    {removeTarget?.email}
+                  </span>{" "}
+                  and disconnects the account.
+                </p>
+                <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3">
+                  <div className="font-medium text-foreground">
+                    You will lose:
+                  </div>
+                  <ul className="mt-1 list-inside list-disc space-y-0.5">
+                    <li>
+                      {formatCount(removeEventTotal)} archived events across{" "}
+                      {removeTarget?.calendars.length ?? 0} calendars
+                    </li>
+                    <li>
+                      {formatCount(removeChangeTotal)} audit-log entries (the
+                      full change history)
+                    </li>
+                  </ul>
+                </div>
+                <p className="text-muted-foreground">
+                  This cannot be undone. To get any of this data back you would
+                  have to reconnect the calendar and re-run the full backfill,
+                  which only recovers events that still exist in Google today —
+                  anything since deleted upstream is gone for good.
+                </p>
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setRemoveTargetId(null)}
+              disabled={isRemoving}
+            >
+              Keep my data
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() =>
+                removeTargetId && handleConfirmedRemove(removeTargetId)
+              }
+              disabled={isRemoving}
+            >
+              {isRemoving
+                ? "Erasing…"
+                : `Erase ${formatCount(removeEventTotal)} events`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

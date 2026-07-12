@@ -31,6 +31,9 @@ export async function GET(request: NextRequest) {
             backfillComplete: true,
             backfillCursor: true,
             backfillError: true,
+            _count: {
+              select: { events: true, eventChanges: true },
+            },
           },
           orderBy: { name: "asc" },
         },
@@ -45,7 +48,11 @@ export async function GET(request: NextRequest) {
         // Surface the CalDAV server URL so multiple CalDAV accounts that share a
         // username (now allowed, see #145) are distinguishable in the UI.
         caldavUrl: account.caldavUrl,
-        calendars: account.calendars,
+        calendars: account.calendars.map(({ _count, ...calendar }) => ({
+          ...calendar,
+          eventCount: _count.events,
+          changeCount: _count.eventChanges,
+        })),
       }))
     );
   } catch (error) {

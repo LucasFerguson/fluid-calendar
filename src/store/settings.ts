@@ -16,6 +16,8 @@ export interface ConnectedCalendarSummary {
   backfillComplete?: boolean;
   backfillCursor?: string | null;
   backfillError?: string | null;
+  eventCount?: number;
+  changeCount?: number;
 }
 
 interface ConnectedAccount {
