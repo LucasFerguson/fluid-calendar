@@ -1,6 +1,10 @@
 import { Prisma } from "@prisma/client";
 import { calendar_v3 } from "googleapis";
 
+import {
+  enrichAttendees,
+  writeAttendeeRecords,
+} from "@/lib/calendar-attendees";
 import { createAllDayDate, newDate } from "@/lib/date-utils";
 import { prisma } from "@/lib/prisma";
 
@@ -163,18 +167,19 @@ export async function upsertGoogleEvent(opts: {
           email: event.organizer.email,
         }
       : undefined,
-    attendees: event.attendees?.map((a: calendar_v3.Schema$EventAttendee) => ({
-      name: a.displayName,
-      email: a.email,
-      status: a.responseStatus,
-    })),
+    attendees: enrichAttendees(event.attendees) as
+      | Prisma.InputJsonValue
+      | undefined,
   };
 
-  await prisma.calendarEvent.upsert({
+  const row = await prisma.calendarEvent.upsert({
     where: { feedId_externalEventId: { feedId, externalEventId } },
     create: { feedId, externalEventId, ...record },
     update: record,
   });
+
+  // Keep the relational attendee rows in sync (no-op when the event has none).
+  await writeAttendeeRecords(row.id, event.attendees);
 
   await recordChange(
     feedId,

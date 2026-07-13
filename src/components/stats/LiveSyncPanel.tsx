@@ -111,6 +111,9 @@ export function LiveSyncPanel({ data }: { data: LiveResponse | undefined }) {
                   {f.eventsThisRun > 0
                     ? ` · +${f.eventsThisRun.toLocaleString()} new`
                     : ""}
+                  {f.startedAt
+                    ? ` · running ${Math.max(0, Math.round((now - f.startedAt) / 1000))}s`
+                    : ""}
                 </span>
               </span>
             ))}

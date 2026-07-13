@@ -17,6 +17,7 @@ export interface FeedProgress {
   phase: SyncPhase;
   page: number; // current page number of the active listing (API calls made)
   eventsThisRun: number;
+  startedAt: number | null; // epoch ms the current non-idle run began
   updatedAt: number; // epoch ms
 }
 
@@ -45,11 +46,22 @@ export function reportProgress(
     eventsThisRun?: number;
   }
 ): void {
+  const prev = state().feeds.get(feedId);
+  // Keep the run's start time across pages; stamp it when a run begins
+  // (idle/unknown -> active), clear it when the feed goes idle.
+  const startedAt =
+    p.phase === "idle"
+      ? null
+      : prev && prev.phase !== "idle" && prev.startedAt
+        ? prev.startedAt
+        : Date.now();
+
   state().feeds.set(feedId, {
     feedName: p.feedName,
     phase: p.phase,
     page: p.page ?? 0,
     eventsThisRun: p.eventsThisRun ?? 0,
+    startedAt,
     updatedAt: Date.now(),
   });
 }

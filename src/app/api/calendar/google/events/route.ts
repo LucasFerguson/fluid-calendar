@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { Prisma } from "@prisma/client";
 import { GaxiosError } from "gaxios";
 import { calendar_v3 } from "googleapis";
 
 import { authenticateRequest } from "@/lib/auth/api-auth";
+import {
+  enrichAttendees,
+  writeAttendeeRecords,
+} from "@/lib/calendar-attendees";
 import {
   deleteCalendarEvent,
   getEvent,
@@ -58,17 +63,17 @@ async function writeEventToDatabase(
       organizer: event.organizer
         ? { name: event.organizer.displayName, email: event.organizer.email }
         : undefined,
-      attendees: event.attendees?.map((a) => ({
-        name: a.displayName,
-        email: a.email,
-        status: a.responseStatus,
-      })),
+      attendees: enrichAttendees(event.attendees) as
+        | Prisma.InputJsonValue
+        | undefined,
     };
-    return prisma.calendarEvent.upsert({
+    const row = await prisma.calendarEvent.upsert({
       where: { feedId_externalEventId: { feedId, externalEventId: event.id } },
       create: data,
       update: data,
     });
+    await writeAttendeeRecords(row.id, event.attendees);
+    return row;
   }
 
   // Upsert instances if any
@@ -106,11 +111,9 @@ async function writeEventToDatabase(
               email: instance.organizer.email,
             }
           : undefined,
-        attendees: instance.attendees?.map((a) => ({
-          name: a.displayName,
-          email: a.email,
-          status: a.responseStatus,
-        })),
+        attendees: enrichAttendees(instance.attendees) as
+          | Prisma.InputJsonValue
+          | undefined,
       };
       const createdInstance = await prisma.calendarEvent.upsert({
         where: {
@@ -119,6 +122,7 @@ async function writeEventToDatabase(
         create: data,
         update: data,
       });
+      await writeAttendeeRecords(createdInstance.id, instance.attendees);
       createdInstances.push(createdInstance);
     }
   }

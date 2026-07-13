@@ -194,6 +194,10 @@ model CalendarEvent {
   instances        CalendarEvent[] @relation("EventInstances")
   recurringEventId String? // Google Calendar's recurring event ID
 
+  // Relational attendees (queryable). The `attendees` JSON column above is kept
+  // as a denormalized copy the calendar UI reads directly.
+  attendeeRecords  EventAttendee[]
+
   // Event identity within a feed. Backfill/incremental sync upserts on this
   // pair; nothing may create duplicate rows for the same external event.
   @@unique([feedId, externalEventId])
@@ -202,6 +206,29 @@ model CalendarEvent {
   @@index([externalEventId])
   @@index([masterEventId])
   @@index([recurringEventId])
+}
+
+// One row per person (or resource) invited to an event — the relational,
+// queryable form of the attendees JSON. Enables "every event with X",
+// contact-frequency analytics, etc. Rebuilt from the provider payload on each
+// sync of an event that carries attendees.
+model EventAttendee {
+  id               String        @id @default(cuid())
+  eventId          String
+  event            CalendarEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  email            String?
+  name             String?
+  responseStatus   String? // needsAction | declined | tentative | accepted
+  optional         Boolean       @default(false)
+  isOrganizer      Boolean       @default(false)
+  isSelf           Boolean       @default(false)
+  isResource       Boolean       @default(false) // a room / equipment, not a person
+  comment          String?
+  additionalGuests Int?
+  createdAt        DateTime      @default(now())
+
+  @@index([eventId])
+  @@index([email])
 }
 
 // Append-only audit trail of every change the calendar sync observes.

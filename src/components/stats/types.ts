@@ -44,6 +44,7 @@ export interface FeedSyncProgress {
   phase: "idle" | "backfill" | "incremental" | "horizon";
   page: number;
   eventsThisRun: number;
+  startedAt: number | null;
   updatedAt: number;
 }
 
