@@ -27,9 +27,9 @@ export function enrichAttendees(
 ): EnrichedAttendee[] | undefined {
   if (!attendees) return undefined;
   return attendees.map((a) => ({
-    name: a.displayName,
-    email: a.email,
-    status: a.responseStatus,
+    name: a.displayName ?? null,
+    email: a.email ?? null,
+    status: a.responseStatus ?? null,
     optional: a.optional ?? false,
     organizer: a.organizer ?? false,
     self: a.self ?? false,
