@@ -82,8 +82,28 @@ An event object includes: `id`, `feedId`, `externalEventId`, `title`,
 |---|---|---|
 | GET | `/api/stats` | Totals, per-year, per-calendar, and a 7×24 weekday/hour heatmap (computed in the user's timezone). |
 | GET | `/api/stats/live` | Cheap, pollable: per-feed sync state, recent change-log activity, and the live sync-engine progress (`phase`, `page`, `nextTickAt`). |
-| GET | `/api/contacts` | Every person you've shared an event with (from `EventAttendee`): name, meeting count, first met / last meeting / next meeting dates in the user's timezone. |
-| GET | `/api/contacts/:email` | One contact's shared events (title, start, calendar, RSVP), oldest first. |
+| GET | `/api/contacts` | Every person you've shared an event with (from `EventAttendee`): name, meeting count, first met / last meeting / next meeting dates in the user's timezone, plus CRM overlay fields (`company`, `title`, `photoUrl`). |
+| GET | `/api/contacts/:email` | One contact's shared events (title, start, calendar, RSVP), oldest first, plus the full `profile` overlay. |
+| PUT | `/api/contacts/:email` | Upsert the contact's CRM profile overlay. (write) |
+| DELETE | `/api/contacts/:email` | Remove the profile overlay (the derived contact remains). (write) |
+
+Contacts are *derived* from calendar attendees — there is no contact "create"
+or "delete"; a person appears once you share a non-cancelled event with them.
+What external systems (e.g. a self-hosted CRM) can write is the **profile
+overlay**: `name` (display override), `company`, `title`, `phone`, `photoUrl`,
+`notes`. `PUT` uses merge semantics — omitted fields are left unchanged and an
+explicit `null` clears a field — so a CRM can sync just the fields it owns:
+
+```bash
+curl -X PUT http://localhost:3000/api/contacts/jane@example.com \
+  -H "Authorization: Bearer fc_..." -H "Content-Type: application/json" \
+  -d '{"company": "Acme Corp", "title": "CTO", "photoUrl": "https://crm.lan/p/jane.jpg"}'
+```
+
+Emails are matched case-insensitively (stored lowercased). A profile written
+for an email with no shared events yet is kept and will attach to the contact
+when events with that attendee sync in; until then it only shows via
+`GET /api/contacts/:email`, not in the list.
 
 The archival change log (`CalendarEventChange`) records every observed
 create/update/cancellation; a read endpoint for it is a natural addition if you

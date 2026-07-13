@@ -38,8 +38,11 @@ Status legend: 🔴 not started · 🟡 partial/foundation exists · 🟢 mostly
   (`/contacts`, `GET /api/contacts[/:email]`): per-person first-met /
   last-meeting / next-meeting dates, meeting counts, and a detail view listing
   all shared events. Derived from `EventAttendee`, so it fills in as events are
-  (re-)synced — sparse until the attendee backfill (below) runs. Possible
-  follow-ons: meeting load per person/week, RSVP rates.
+  (re-)synced — sparse until the attendee backfill (below) runs. A
+  `ContactProfile` overlay (company, title, phone, photo, notes) is writable by
+  external CRMs via `PUT /api/contacts/:email`, and the page filters by
+  company. Possible follow-ons: meeting load per person/week, RSVP rates,
+  two-way CRM sync.
 - 🟡 **Calendar filter on stats.** Subscribed calendars (US Holidays, school)
   skew the heatmap and per-year counts. Code TODO already in `/api/stats`
   (`TODO(stats-filter)`): accept `?calendarIds=` and default to owned calendars.

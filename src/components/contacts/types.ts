@@ -8,6 +8,21 @@ export interface ContactSummary {
   firstMet: string | null;
   lastMeeting: string | null;
   nextMeeting: string | null;
+  company: string | null;
+  title: string | null;
+  photoUrl: string | null;
+}
+
+// CRM enrichment overlay, written via PUT /api/contacts/:email.
+export interface ContactProfile {
+  email: string;
+  name: string | null;
+  company: string | null;
+  title: string | null;
+  phone: string | null;
+  photoUrl: string | null;
+  notes: string | null;
+  updatedAt: string;
 }
 
 export interface ContactsResponse {
@@ -30,5 +45,6 @@ export interface ContactDetailResponse {
   timeZone: string;
   email: string;
   name: string | null;
+  profile: ContactProfile | null;
   events: ContactEvent[];
 }

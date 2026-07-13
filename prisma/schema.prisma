@@ -97,6 +97,7 @@ model User {
   TaskChange           TaskChange[]
   PasswordReset        PasswordReset[]
   apiKeys              ApiKey[]
+  contactProfiles      ContactProfile[]
 }
 
 model VerificationToken {
@@ -229,6 +230,27 @@ model EventAttendee {
 
   @@index([eventId])
   @@index([email])
+}
+
+// CRM-style enrichment overlay for contacts. Contacts themselves are derived
+// on the fly from EventAttendee (see /api/contacts); this table stores
+// user- or external-CRM-supplied fields keyed by lowercased email, written
+// via PUT /api/contacts/:email (API-key friendly for homelab integrations).
+model ContactProfile {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  email     String // always stored lowercased
+  name      String? // display-name override for the attendee-derived name
+  company   String?
+  title     String? // job title
+  phone     String?
+  photoUrl  String?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, email])
 }
 
 // Append-only audit trail of every change the calendar sync observes.

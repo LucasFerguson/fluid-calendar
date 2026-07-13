@@ -28,6 +28,9 @@ interface ContactRow {
   first_met: string | null;
   last_meeting: string | null;
   next_meeting: string | null;
+  company: string | null;
+  job_title: string | null;
+  photo_url: string | null;
 }
 
 export async function GET(request: NextRequest) {
@@ -53,26 +56,39 @@ export async function GET(request: NextRequest) {
     // isSelf, but also by email when invited via a different calendar).
     const ownEmail = (user?.email ?? "").toLowerCase();
 
+    // ContactProfile is the CRM enrichment overlay (see prisma/schema.prisma);
+    // its name override wins over the attendee-derived name.
     const contacts = await prisma.$queryRaw<ContactRow[]>`
-      SELECT lower(a.email) AS email,
-             max(a.name) AS name,
-             count(DISTINCT e.id)::int AS meetings,
-             to_char((min(e.start) AT TIME ZONE 'UTC') AT TIME ZONE ${tz}, ${LOCAL_ISO}) AS first_met,
-             to_char((max(e.start) FILTER (WHERE e.start <= now() AT TIME ZONE 'UTC')
-                      AT TIME ZONE 'UTC') AT TIME ZONE ${tz}, ${LOCAL_ISO}) AS last_meeting,
-             to_char((min(e.start) FILTER (WHERE e.start >  now() AT TIME ZONE 'UTC')
-                      AT TIME ZONE 'UTC') AT TIME ZONE ${tz}, ${LOCAL_ISO}) AS next_meeting
-      FROM "EventAttendee" a
-      JOIN "CalendarEvent" e ON e.id = a."eventId"
-      JOIN "CalendarFeed"  f ON f.id = e."feedId"
-      WHERE f."userId" = ${userId}
-        AND (e.status IS NULL OR e.status <> 'cancelled')
-        AND a."isSelf" = false
-        AND a."isResource" = false
-        AND a.email IS NOT NULL
-        AND lower(a.email) <> ${ownEmail}
-      GROUP BY lower(a.email)
-      ORDER BY last_meeting DESC NULLS LAST, next_meeting ASC`;
+      WITH agg AS (
+        SELECT lower(a.email) AS email,
+               max(a.name) AS name,
+               count(DISTINCT e.id)::int AS meetings,
+               to_char((min(e.start) AT TIME ZONE 'UTC') AT TIME ZONE ${tz}, ${LOCAL_ISO}) AS first_met,
+               to_char((max(e.start) FILTER (WHERE e.start <= now() AT TIME ZONE 'UTC')
+                        AT TIME ZONE 'UTC') AT TIME ZONE ${tz}, ${LOCAL_ISO}) AS last_meeting,
+               to_char((min(e.start) FILTER (WHERE e.start >  now() AT TIME ZONE 'UTC')
+                        AT TIME ZONE 'UTC') AT TIME ZONE ${tz}, ${LOCAL_ISO}) AS next_meeting
+        FROM "EventAttendee" a
+        JOIN "CalendarEvent" e ON e.id = a."eventId"
+        JOIN "CalendarFeed"  f ON f.id = e."feedId"
+        WHERE f."userId" = ${userId}
+          AND (e.status IS NULL OR e.status <> 'cancelled')
+          AND a."isSelf" = false
+          AND a."isResource" = false
+          AND a.email IS NOT NULL
+          AND lower(a.email) <> ${ownEmail}
+        GROUP BY lower(a.email)
+      )
+      SELECT agg.email,
+             COALESCE(p.name, agg.name) AS name,
+             agg.meetings, agg.first_met, agg.last_meeting, agg.next_meeting,
+             p.company,
+             p.title AS job_title,
+             p."photoUrl" AS photo_url
+      FROM agg
+      LEFT JOIN "ContactProfile" p
+        ON p."userId" = ${userId} AND p.email = agg.email
+      ORDER BY agg.last_meeting DESC NULLS LAST, agg.next_meeting ASC`;
 
     return NextResponse.json({
       timeZone: tz,
@@ -83,6 +99,9 @@ export async function GET(request: NextRequest) {
         firstMet: r.first_met,
         lastMeeting: r.last_meeting,
         nextMeeting: r.next_meeting,
+        company: r.company,
+        title: r.job_title,
+        photoUrl: r.photo_url,
       })),
     });
   } catch (error) {

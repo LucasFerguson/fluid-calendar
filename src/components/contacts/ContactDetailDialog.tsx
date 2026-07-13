@@ -12,7 +12,8 @@ import {
 
 import { getEventColors } from "@/lib/calendar-colors";
 
-import { formatDay, formatDayTime, initials } from "./format";
+import { ContactAvatar } from "./ContactAvatar";
+import { formatDay, formatDayTime } from "./format";
 import { ContactDetailResponse, ContactEvent, ContactSummary } from "./types";
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -81,9 +82,12 @@ export function ContactDetailDialog({ contact, onClose }: Props) {
             <DialogHeader>
               <DialogTitle>
                 <span className="flex items-center gap-3">
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary">
-                    {initials(contact.name, contact.email)}
-                  </span>
+                  <ContactAvatar
+                    name={contact.name}
+                    email={contact.email}
+                    photoUrl={contact.photoUrl}
+                    className="h-9 w-9"
+                  />
                   <span className="min-w-0">
                     <span className="block truncate">
                       {contact.name || contact.email}
@@ -97,6 +101,10 @@ export function ContactDetailDialog({ contact, onClose }: Props) {
                 </span>
               </DialogTitle>
               <DialogDescription>
+                {[contact.title, contact.company]
+                  .filter(Boolean)
+                  .join(" · ") || null}
+                {(contact.title || contact.company) && " — "}
                 {contact.meetings.toLocaleString()}{" "}
                 {contact.meetings === 1 ? "shared event" : "shared events"}
               </DialogDescription>
@@ -116,6 +124,22 @@ export function ContactDetailDialog({ contact, onClose }: Props) {
 
             {detail.data && (
               <div className="space-y-4">
+                {detail.data.profile &&
+                  (detail.data.profile.phone || detail.data.profile.notes) && (
+                    <div className="space-y-1 rounded-md border border-border bg-muted/30 p-3 text-sm">
+                      {detail.data.profile.phone && (
+                        <div>
+                          <span className="text-muted-foreground">Phone: </span>
+                          {detail.data.profile.phone}
+                        </div>
+                      )}
+                      {detail.data.profile.notes && (
+                        <div className="whitespace-pre-wrap text-muted-foreground">
+                          {detail.data.profile.notes}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 <div className="grid gap-2 sm:grid-cols-3">
                   <Milestone label="First met" event={firstMet} />
                   <Milestone label="Last meeting" event={lastMeeting} />
