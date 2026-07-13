@@ -158,17 +158,21 @@ export async function runGristSync(
     const title = str(rec.fields.position);
     const notes = str(rec.fields.Notes);
 
+    // Prefer the Grist attachment (stable, served by our own Grist box) over
+    // photo_url, which for LinkedIn imports is a CDN link with an expiring
+    // token. Fall back to the URL only if the attachment fails.
     let photoUrl: string | undefined;
     const externalPhoto = str(rec.fields.photo_url);
     const attachmentId = firstAttachmentId(rec.fields.photo);
-    if (externalPhoto || attachmentId) {
+    const sources: Array<{ url: string } | { attachmentId: number }> = [
+      ...(attachmentId ? [{ attachmentId }] : []),
+      ...(externalPhoto ? [{ url: externalPhoto }] : []),
+    ];
+    for (const source of sources) {
       try {
-        photoUrl = await downloadPhoto(
-          config,
-          email,
-          externalPhoto ? { url: externalPhoto } : { attachmentId: attachmentId! }
-        );
+        photoUrl = await downloadPhoto(config, email, source);
         summary.photosDownloaded++;
+        break;
       } catch (error) {
         // Keep any previously downloaded photo; just report the failure.
         summary.errors.push(
