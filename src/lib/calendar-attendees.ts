@@ -8,6 +8,13 @@ import { prisma } from "@/lib/prisma";
 //     reads directly), now enriched beyond name/email/status
 //   - relational EventAttendee rows (queryable for analytics like "every event
 //     with X" or contact frequency)
+//
+// TODO(people-analytics): a "People" section on the Statistics page can now be
+// built on EventAttendee (top collaborators, meeting load per person, RSVP
+// rates). See docs/ROADMAP.md.
+// TODO(attendee-backfill): rows populate only when an event is (re)synced with
+// attendees; a one-time backfill from the attendees JSON / changeData would
+// fill already-synced history.
 
 export interface EnrichedAttendee {
   name?: string | null;

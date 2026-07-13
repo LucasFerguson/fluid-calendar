@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Recurring events can be deleted "this and following" (truncates the series' RRULE with `UNTIL`), alongside single-occurrence and whole-series deletes, from both the event modal and the quick-view popup
+- Per-calendar color override and background-opacity control (a calendar can be a faint always-on time-blocking base layer), with auto-contrasting event text so events stay legible on any color
+- Statistics dashboard (new nav tab): archive totals, a weekday×hour event heatmap, events-per-year and per-calendar breakdowns, animated count-up tiles, and a live sync panel showing per-calendar phase/page, elapsed run time, and a countdown to the next sync
+- Rolling-horizon refresh so open-ended recurring series keep materializing occurrences beyond Google's ~2-year expansion window
+- API keys for homelab integrations: `Authorization: Bearer` / `X-API-Key` auth on all routes (read or read-write scope), managed under Settings → API Keys, documented in `docs/API.md`
+- Relational `EventAttendee` table plus enriched attendee fields (optional, organizer, self, resource, comment, additional guests), making attendees queryable for analytics
+
+### Fixed
+
+- Moving or editing an existing Google event failed after the archival changes (soft-cancel + the new `(feedId, externalEventId)` unique constraint broke the old delete-then-recreate update path); the update now upserts in place
+
+### Changed
+
 - Google Calendar sync is now a full-archival mirror instead of a rolling current-year window. Every feed gets a throttled, resumable full-history backfill (all years, paginated, rate-limited against Google quotas) followed by continuous incremental syncs via Google's `nextSyncToken` (410 token expiry triggers a clean full resync). Syncs run automatically in the background from server startup - no sync button required. Deletions arrive as `status: cancelled` and are preserved, never removed; every observed create/update/cancellation is also appended to a new `CalendarEventChange` audit table, and operational sync activity is written to disk under `logs/google-calendar-sync/` as monthly NDJSON files
 - `CalendarEvent` now stores the event's original IANA timezone (`timeZone`) and enforces a `(feedId, externalEventId)` unique key; the destructive delete-all-and-reinsert Google sync path is gone, replaced by idempotent upserts that also preserve recurring-event master/RRULE fidelity on every sync (previously only the initial import kept it)
 - Import tasks from CalDAV servers (Baikal, Nextcloud, Fastmail, etc.): a connected CalDAV account's task collections (calendars that expose `VTODO`) can be mapped to a project and their tasks imported into FluidCalendar. Import is one-way for now - title, description, due/start dates, status, priority, and recurrence are read from the server, and an external-owned field cleared upstream (e.g. a completed task reopened) is cleared locally too so the import mirrors the server (#144)
