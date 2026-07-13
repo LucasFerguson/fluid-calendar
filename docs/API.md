@@ -105,6 +105,14 @@ for an email with no shared events yet is kept and will attach to the contact
 when events with that attendee sync in; until then it only shows via
 `GET /api/contacts/:email`, not in the list.
 
+### Grist CRM (external contacts pull)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/grist/status` | Read-only connection info (server, doc id, tables, key present) + last sync summary. Config lives in `GRIST_*` env vars. |
+| POST | `/api/grist/sync` | Pull Grist `Connections` (+`Companies`) into the contact profile overlay; downloads photos locally. (write) |
+| GET | `/api/contact-photos/:file` | Serves synced profile photos from `data/contact-photos/` (never hot-linked from the CRM). |
+
 The archival change log (`CalendarEventChange`) records every observed
 create/update/cancellation; a read endpoint for it is a natural addition if you
 want to consume the audit trail directly (not yet exposed).

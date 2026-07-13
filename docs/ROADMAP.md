@@ -19,7 +19,26 @@ Status legend: 🔴 not started · 🟡 partial/foundation exists · 🟢 mostly
   Chicago; render via FullCalendar `dayHeaderContent`. Temperature high/low +
   icon per day.
 
+- 🟢 **Grist CRM pull** — shipped. `GRIST_*` in `.env` (server URL, API key, doc
+  id, table names), read-only connection card under Settings → Accounts, manual
+  `POST /api/grist/sync` pulling the `Connections` (+`Companies`) tables into
+  `ContactProfile`. Photos are downloaded to `data/contact-photos/` and served
+  from `/api/contact-photos/:file` so the UI never hot-links the Grist server.
+  Follow-ons: scheduled sync (systemd timer or in-app interval), two-way sync.
+- 🔴 **Obsidian meeting-note button.** A button on an event that opens (or
+  creates) a note in Lucas's Obsidian vault at a predetermined location from a
+  template, via an `obsidian://` URI (`obsidian://new?vault=...&file=...` or
+  the Advanced URI plugin for templates). Needs: vault name, target folder
+  convention (e.g. `Meetings/YYYY-MM-DD <title>`), template path.
+
 ## Calendar UX
+
+- 🔴 **Local-only attendees from contacts.** Tag contacts onto an event from
+  the event modal for organizational purposes - explicitly *not* sending
+  invites. Design note: `EventAttendee` rows are rewritten from Google on every
+  sync of an event, so local tags must NOT live there as plain rows or they'll
+  be wiped; they need either a `source: 'LOCAL'` column the sync preserves, or
+  a separate `EventContactTag` join table (cleaner).
 
 - 🟡 **Markdown event descriptions.** Render the description as Markdown when the
   field isn't focused; swap to the raw textarea on click (click-to-edit). Code

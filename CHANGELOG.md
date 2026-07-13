@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Relational `EventAttendee` table plus enriched attendee fields (optional, organizer, self, resource, comment, additional guests), making attendees queryable for analytics
 - Contacts page (new nav tab): every person found across your calendar events, with first-met / last-meeting / next-meeting dates and meeting counts; clicking a contact shows those three meetings' titles and a list of all shared events. Backed by `GET /api/contacts` and `GET /api/contacts/:email`
 - Contact profile overlay (`ContactProfile` table) writable from external systems (e.g. a self-hosted CRM) via `PUT`/`DELETE /api/contacts/:email` with API-key auth: display-name override, company, job title, phone, photo URL, notes. The Contacts page shows profile photos, a Company column, and a company dropdown filter
+- Grist CRM integration: one-way pull of the Grist `Connections`/`Companies` tables into the contact profile overlay (`POST /api/grist/sync`), configured via `GRIST_*` env vars and shown read-only under Settings → Accounts with a Sync now button. Profile photos are downloaded into `data/contact-photos/` and served locally from `/api/contact-photos/:file` instead of hot-linking the CRM server
 
 ### Fixed
 

@@ -8,6 +8,7 @@ import dynamic from "next/dynamic";
 import { AccountManager } from "@/components/settings/AccountManager";
 import { AutoScheduleSettings } from "@/components/settings/AutoScheduleSettings";
 import { CalendarSettings } from "@/components/settings/CalendarSettings";
+import { GristConnectionCard } from "@/components/settings/GristConnectionCard";
 import { ApiKeysSettings } from "@/components/settings/ApiKeysSettings";
 import { ImportExportSettings } from "@/components/settings/ImportExportSettings";
 import { LogViewer } from "@/components/settings/LogViewer";
@@ -184,7 +185,12 @@ export default function SettingsPage() {
 
     switch (activeTab) {
       case "accounts":
-        return <AccountManager />;
+        return (
+          <div className="space-y-6">
+            <AccountManager />
+            <GristConnectionCard />
+          </div>
+        );
       case "user":
         return <UserSettings />;
       case "calendar":
