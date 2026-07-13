@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Rolling-horizon refresh so open-ended recurring series keep materializing occurrences beyond Google's ~2-year expansion window
 - API keys for homelab integrations: `Authorization: Bearer` / `X-API-Key` auth on all routes (read or read-write scope), managed under Settings → API Keys, documented in `docs/API.md`
 - Relational `EventAttendee` table plus enriched attendee fields (optional, organizer, self, resource, comment, additional guests), making attendees queryable for analytics
+- Contacts page (new nav tab): every person found across your calendar events, with first-met / last-meeting / next-meeting dates and meeting counts; clicking a contact shows those three meetings' titles and a list of all shared events. Backed by `GET /api/contacts` and `GET /api/contacts/:email`
 
 ### Fixed
 

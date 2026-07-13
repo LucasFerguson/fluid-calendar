@@ -6,6 +6,8 @@ export const getTitleFromPathname = (pathname: string) => {
       return "Tasks | FluidCalendar";
     case "/focus":
       return "Focus | FluidCalendar";
+    case "/contacts":
+      return "Contacts | FluidCalendar";
     case "/settings":
       return "Settings | FluidCalendar";
     case "/setup":

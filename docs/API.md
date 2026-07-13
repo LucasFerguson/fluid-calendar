@@ -82,6 +82,8 @@ An event object includes: `id`, `feedId`, `externalEventId`, `title`,
 |---|---|---|
 | GET | `/api/stats` | Totals, per-year, per-calendar, and a 7×24 weekday/hour heatmap (computed in the user's timezone). |
 | GET | `/api/stats/live` | Cheap, pollable: per-feed sync state, recent change-log activity, and the live sync-engine progress (`phase`, `page`, `nextTickAt`). |
+| GET | `/api/contacts` | Every person you've shared an event with (from `EventAttendee`): name, meeting count, first met / last meeting / next meeting dates in the user's timezone. |
+| GET | `/api/contacts/:email` | One contact's shared events (title, start, calendar, RSVP), oldest first. |
 
 The archival change log (`CalendarEventChange`) records every observed
 create/update/cancellation; a read endpoint for it is a natural addition if you
