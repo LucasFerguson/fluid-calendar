@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
+import { HiChevronDown, HiChevronUp } from "react-icons/hi";
 
 import { Badge } from "@/components/ui/badge";
 import {
@@ -21,6 +22,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
+import { cn } from "@/lib/utils";
+
 import { ContactAvatar } from "./ContactAvatar";
 import { ContactDetailDialog } from "./ContactDetailDialog";
 import { formatDay } from "./format";
@@ -35,9 +38,64 @@ async function fetchJson<T>(url: string): Promise<T> {
 // Radix Select items can't have an empty-string value, so "all" is a sentinel.
 const ALL_COMPANIES = "all";
 
+type SortKey =
+  | "name"
+  | "company"
+  | "firstMet"
+  | "lastMeeting"
+  | "nextMeeting"
+  | "meetings";
+type SortDir = "asc" | "desc";
+
+// The direction a column starts in on first click (dates/counts most-first).
+const DEFAULT_DIR: Record<SortKey, SortDir> = {
+  name: "asc",
+  company: "asc",
+  firstMet: "desc",
+  lastMeeting: "desc",
+  nextMeeting: "asc",
+  meetings: "desc",
+};
+
+function displayName(c: ContactSummary): string {
+  return (c.name || c.email).toLowerCase();
+}
+
+// Comparator that always sinks null/empty values to the bottom regardless of
+// direction, so "no company" / "no meeting" rows don't crowd the top.
+function compare(a: ContactSummary, b: ContactSummary, key: SortKey): number {
+  switch (key) {
+    case "name":
+      return displayName(a).localeCompare(displayName(b));
+    case "company": {
+      const av = a.company?.toLowerCase() ?? "";
+      const bv = b.company?.toLowerCase() ?? "";
+      if (!av && !bv) return 0;
+      if (!av) return 1;
+      if (!bv) return -1;
+      return av.localeCompare(bv);
+    }
+    case "meetings":
+      return a.meetings - b.meetings;
+    default: {
+      // Date columns: wall-clock ISO strings sort lexically = chronologically.
+      const av = a[key];
+      const bv = b[key];
+      if (!av && !bv) return 0;
+      if (!av) return 1;
+      if (!bv) return -1;
+      return av < bv ? -1 : av > bv ? 1 : 0;
+    }
+  }
+}
+
 export function ContactsView() {
   const [selected, setSelected] = useState<ContactSummary | null>(null);
   const [company, setCompany] = useState<string>(ALL_COMPANIES);
+  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({
+    key: "lastMeeting",
+    dir: "desc",
+  });
 
   const contacts = useQuery<ContactsResponse>({
     queryKey: ["contacts"],
@@ -58,8 +116,56 @@ export function ContactsView() {
     [all]
   );
 
-  const rows =
-    company === ALL_COMPANIES ? all : all.filter((c) => c.company === company);
+  const rows = useMemo(() => {
+    const filtered =
+      company === ALL_COMPANIES
+        ? all
+        : all.filter((c) => c.company === company);
+    const factor = sort.dir === "asc" ? 1 : -1;
+    // Copy before sorting; a stable email tiebreak keeps order deterministic.
+    return [...filtered].sort(
+      (a, b) => compare(a, b, sort.key) * factor || a.email.localeCompare(b.email)
+    );
+  }, [all, company, sort]);
+
+  const toggleSort = (key: SortKey) =>
+    setSort((prev) =>
+      prev.key === key
+        ? { key, dir: prev.dir === "asc" ? "desc" : "asc" }
+        : { key, dir: DEFAULT_DIR[key] }
+    );
+
+  function SortHeader({
+    label,
+    sortKey,
+    className,
+  }: {
+    label: string;
+    sortKey: SortKey;
+    className?: string;
+  }) {
+    const active = sort.key === sortKey;
+    return (
+      <TableHead className={className}>
+        <button
+          type="button"
+          onClick={() => toggleSort(sortKey)}
+          className={cn(
+            "inline-flex items-center gap-1 hover:text-foreground",
+            active && "font-medium text-foreground"
+          )}
+        >
+          {label}
+          {active &&
+            (sort.dir === "asc" ? (
+              <HiChevronUp className="h-3.5 w-3.5" />
+            ) : (
+              <HiChevronDown className="h-3.5 w-3.5" />
+            ))}
+        </button>
+      </TableHead>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 p-6">
@@ -121,15 +227,31 @@ export function ContactsView() {
 
       {rows.length > 0 && (
         <div className="rounded-md border border-border">
-          <Table>
+          <Table className="table-fixed">
             <TableHeader>
               <TableRow>
-                <TableHead>Contact</TableHead>
-                <TableHead>Company</TableHead>
-                <TableHead>First met</TableHead>
-                <TableHead>Last meeting</TableHead>
-                <TableHead>Next meeting</TableHead>
-                <TableHead className="text-right">Meetings</TableHead>
+                <SortHeader label="Contact" sortKey="name" />
+                <SortHeader label="Company" sortKey="company" />
+                <SortHeader
+                  label="First met"
+                  sortKey="firstMet"
+                  className="w-28"
+                />
+                <SortHeader
+                  label="Last meeting"
+                  sortKey="lastMeeting"
+                  className="w-32"
+                />
+                <SortHeader
+                  label="Next meeting"
+                  sortKey="nextMeeting"
+                  className="w-32"
+                />
+                <SortHeader
+                  label="Meetings"
+                  sortKey="meetings"
+                  className="w-32 text-right [&>button]:justify-end"
+                />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -139,7 +261,7 @@ export function ContactsView() {
                   className="cursor-pointer"
                   onClick={() => setSelected(c)}
                 >
-                  <TableCell>
+                  <TableCell className="max-w-0">
                     <div className="flex items-center gap-3">
                       <ContactAvatar
                         name={c.name}
@@ -158,7 +280,7 @@ export function ContactsView() {
                       </div>
                     </div>
                   </TableCell>
-                  <TableCell className="whitespace-nowrap text-muted-foreground">
+                  <TableCell className="max-w-0 truncate text-muted-foreground">
                     {c.company || "—"}
                   </TableCell>
                   <TableCell className="whitespace-nowrap text-muted-foreground">
