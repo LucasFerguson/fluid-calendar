@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { authenticateRequest } from "@/lib/auth/api-auth";
 import { getSyncProgress } from "@/lib/google-calendar-sync/sync-progress";
+import { getGristActivity } from "@/lib/grist/activity";
+import { getGristPublicInfo } from "@/lib/grist/config";
+import { readGristSyncStatus } from "@/lib/grist/sync";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 
@@ -53,6 +56,12 @@ export async function GET(request: NextRequest) {
 
     const progress = getSyncProgress();
 
+    // Grist CRM sync worker: in-memory live activity + timings, plus the
+    // durable last-run summary and static connection info.
+    const gristActivity = getGristActivity();
+    const gristInfo = getGristPublicInfo();
+    const gristLastSummary = await readGristSyncStatus();
+
     return NextResponse.json({
       now: new Date().toISOString(),
       progress,
@@ -68,6 +77,23 @@ export async function GET(request: NextRequest) {
         calendarName: c.feed.name,
         calendarColor: c.feed.color,
       })),
+      grist: {
+        configured: gristInfo.configured,
+        running: gristActivity.running,
+        lastRunAt: gristActivity.lastRunAt,
+        lastTickAt: gristActivity.lastTickAt,
+        nextTickAt: gristActivity.nextTickAt,
+        lastSummary: gristLastSummary
+          ? {
+              lastSyncAt: gristLastSummary.lastSyncAt,
+              synced: gristLastSummary.synced,
+              photosDownloaded: gristLastSummary.photosDownloaded,
+              skippedNoEmail: gristLastSummary.skippedNoEmail,
+              errors: gristLastSummary.errors.length,
+            }
+          : null,
+        recent: gristActivity.runs,
+      },
     });
   } catch (error) {
     logger.error(

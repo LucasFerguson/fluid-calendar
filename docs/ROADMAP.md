@@ -24,7 +24,10 @@ Status legend: 🔴 not started · 🟡 partial/foundation exists · 🟢 mostly
   `POST /api/grist/sync` pulling the `Connections` (+`Companies`) tables into
   `ContactProfile`. Photos are downloaded to `data/contact-photos/` and served
   from `/api/contact-photos/:file` so the UI never hot-links the Grist server.
-  Follow-ons: scheduled sync (systemd timer or in-app interval), two-way sync.
+  Now also runs as an in-process background worker (`src/lib/grist/scheduler.ts`,
+  started from `instrumentation.ts`, default 30-min cadence) surfaced on the
+  Statistics page with countdown/activity feed. Follow-ons: two-way sync;
+  skip re-downloading unchanged photos each tick.
 - 🟢 **Obsidian meeting-note button** — shipped. "Create meeting note" on the
   event quick-view builds an `obsidian://new` URI (vault `Obsidian-Vault`,
   folder `001-Home/Meetings/`, both env-configurable via

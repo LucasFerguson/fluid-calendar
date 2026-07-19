@@ -40,6 +40,12 @@ interface RangeRow {
   oldest: Date | null;
   newest: Date | null;
 }
+interface ContactStatsRow {
+  people: bigint;
+  crm_profiles: bigint;
+  with_company: bigint;
+  with_photo: bigint;
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -49,11 +55,18 @@ export async function GET(request: NextRequest) {
     }
     const userId = auth.userId;
 
-    const settings = await prisma.userSettings.findUnique({
-      where: { userId: userId ?? "" },
-      select: { timeZone: true },
-    });
+    const [settings, user] = await Promise.all([
+      prisma.userSettings.findUnique({
+        where: { userId: userId ?? "" },
+        select: { timeZone: true },
+      }),
+      prisma.user.findUnique({
+        where: { id: userId ?? "" },
+        select: { email: true },
+      }),
+    ]);
     const tz = settings?.timeZone || "UTC";
+    const ownEmail = (user?.email ?? "").toLowerCase();
 
     // A single round trip: run every aggregation in parallel.
     const [
@@ -64,6 +77,7 @@ export async function GET(request: NextRequest) {
       perYear,
       heatmap,
       perCalendar,
+      contactStats,
     ] = await Promise.all([
       prisma.$queryRaw<CountRow[]>`
         SELECT count(*)::bigint AS count
@@ -116,6 +130,28 @@ export async function GET(request: NextRequest) {
         WHERE f."userId" = ${userId} AND f.type = 'GOOGLE'
         GROUP BY f.id, f.name, f.color
         ORDER BY c DESC`,
+      // Contacts: distinct people on the Contacts page (calendar-derived
+      // attendees UNION CRM-only profiles), plus CRM overlay coverage.
+      prisma.$queryRaw<ContactStatsRow[]>`
+        WITH people AS (
+          SELECT lower(a.email) AS email
+          FROM "EventAttendee" a
+          JOIN "CalendarEvent" e ON e.id = a."eventId"
+          JOIN "CalendarFeed"  f ON f.id = e."feedId"
+          WHERE f."userId" = ${userId}
+            AND (e.status IS NULL OR e.status <> 'cancelled')
+            AND a."isSelf" = false AND a."isResource" = false
+            AND a.email IS NOT NULL AND lower(a.email) <> ${ownEmail}
+          GROUP BY lower(a.email)
+          UNION
+          SELECT email FROM "ContactProfile"
+          WHERE "userId" = ${userId} AND email <> ${ownEmail}
+        )
+        SELECT
+          (SELECT count(*)::bigint FROM people) AS people,
+          (SELECT count(*)::bigint FROM "ContactProfile" WHERE "userId" = ${userId}) AS crm_profiles,
+          (SELECT count(*)::bigint FROM "ContactProfile" WHERE "userId" = ${userId} AND company IS NOT NULL) AS with_company,
+          (SELECT count(*)::bigint FROM "ContactProfile" WHERE "userId" = ${userId} AND "photoUrl" IS NOT NULL) AS with_photo`,
     ]);
 
     // Densify the heatmap into a 7 (Sun..Sat) x 24 grid of plain numbers.
@@ -143,6 +179,12 @@ export async function GET(request: NextRequest) {
         count: Number(r.c),
       })),
       heatmap: grid,
+      contacts: {
+        people: Number(contactStats[0]?.people ?? 0),
+        crmProfiles: Number(contactStats[0]?.crm_profiles ?? 0),
+        withCompany: Number(contactStats[0]?.with_company ?? 0),
+        withPhoto: Number(contactStats[0]?.with_photo ?? 0),
+      },
     });
   } catch (error) {
     logger.error(

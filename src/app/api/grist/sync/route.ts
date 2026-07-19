@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { authenticateRequest } from "@/lib/auth/api-auth";
 import { getGristConfig } from "@/lib/grist/config";
-import { runGristSync } from "@/lib/grist/sync";
+import { runGristSyncTracked } from "@/lib/grist/sync";
 import { logger } from "@/lib/logger";
 
 const LOG_SOURCE = "GristSyncAPI";
@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const summary = await runGristSync(config, userId);
+    const summary = await runGristSyncTracked(config, userId, "manual");
     return NextResponse.json(summary);
   } catch (error) {
     logger.error(

@@ -12,6 +12,7 @@ import {
 
 import { AnimatedNumber } from "./AnimatedNumber";
 import { CalendarBreakdown } from "./CalendarBreakdown";
+import { GristSyncPanel } from "./GristSyncPanel";
 import { HourWeekHeatmap } from "./HourWeekHeatmap";
 import { LiveSyncPanel } from "./LiveSyncPanel";
 import { StatTile } from "./StatTile";
@@ -98,17 +99,61 @@ export function StatsDashboard() {
         />
       </div>
 
-      {/* Live sync */}
+      {/* Calendar sync worker */}
       <Card>
         <CardHeader>
-          <CardTitle>Live sync</CardTitle>
+          <CardTitle>Calendar sync worker</CardTitle>
           <CardDescription>
-            Google calendar data flowing down to this server, refreshing every
-            few seconds while this tab is open
+            The background Google Calendar archival sync, refreshing every few
+            seconds while this tab is open
           </CardDescription>
         </CardHeader>
         <CardContent>
           <LiveSyncPanel data={live.data} />
+        </CardContent>
+      </Card>
+
+      {/* Contacts + Grist CRM sync worker */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Contacts &amp; Grist CRM sync worker</CardTitle>
+          <CardDescription>
+            People derived from your calendar plus the CRM overlay, and the
+            background worker that pulls them from Grist
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <StatTile
+              label="Contacts"
+              value={<AnimatedNumber value={stats.data?.contacts.people ?? 0} />}
+              accent
+            />
+            <StatTile
+              label="CRM profiles"
+              value={
+                <AnimatedNumber
+                  value={stats.data?.contacts.crmProfiles ?? 0}
+                />
+              }
+              sublabel="enriched from Grist"
+            />
+            <StatTile
+              label="With company"
+              value={
+                <AnimatedNumber
+                  value={stats.data?.contacts.withCompany ?? 0}
+                />
+              }
+            />
+            <StatTile
+              label="With photo"
+              value={
+                <AnimatedNumber value={stats.data?.contacts.withPhoto ?? 0} />
+              }
+            />
+          </div>
+          <GristSyncPanel data={live.data?.grist} />
         </CardContent>
       </Card>
 

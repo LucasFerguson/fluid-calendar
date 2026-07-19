@@ -5,6 +5,7 @@ import path from "path";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 
+import { recordGristRun, setGristRunning } from "./activity";
 import { GristConfig } from "./config";
 
 const LOG_SOURCE = "GristSync";
@@ -233,4 +234,44 @@ export async function runGristSync(
     LOG_SOURCE
   );
   return summary;
+}
+
+// Runs a sync and records it in the live activity feed (both the manual "Sync
+// now" button and the background scheduler go through this), tracking duration
+// and toggling the running flag. Re-throws so callers can still surface errors.
+export async function runGristSyncTracked(
+  config: GristConfig,
+  userId: string,
+  trigger: "scheduled" | "manual"
+): Promise<GristSyncSummary> {
+  const startedAt = Date.now();
+  setGristRunning(true);
+  try {
+    const summary = await runGristSync(config, userId);
+    recordGristRun({
+      at: Date.now(),
+      ok: summary.errors.length === 0,
+      synced: summary.synced,
+      photosDownloaded: summary.photosDownloaded,
+      skippedNoEmail: summary.skippedNoEmail,
+      errors: summary.errors.length,
+      durationMs: Date.now() - startedAt,
+      trigger,
+    });
+    return summary;
+  } catch (error) {
+    recordGristRun({
+      at: Date.now(),
+      ok: false,
+      synced: 0,
+      photosDownloaded: 0,
+      skippedNoEmail: 0,
+      errors: 1,
+      durationMs: Date.now() - startedAt,
+      trigger,
+    });
+    throw error;
+  } finally {
+    setGristRunning(false);
+  }
 }

@@ -7,5 +7,8 @@ export async function register() {
       "@/lib/google-calendar-sync/scheduler"
     );
     startGoogleCalendarSyncScheduler();
+
+    const { startGristSyncScheduler } = await import("@/lib/grist/scheduler");
+    startGristSyncScheduler();
   }
 }

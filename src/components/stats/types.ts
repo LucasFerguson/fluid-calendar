@@ -15,6 +15,39 @@ export interface StatsResponse {
     count: number;
   }>;
   heatmap: number[][]; // [dow 0..6][hour 0..23]
+  contacts: {
+    people: number; // distinct people on the Contacts page
+    crmProfiles: number; // ContactProfile rows
+    withCompany: number;
+    withPhoto: number;
+  };
+}
+
+export interface GristRun {
+  at: number; // epoch ms
+  ok: boolean;
+  synced: number;
+  photosDownloaded: number;
+  skippedNoEmail: number;
+  errors: number;
+  durationMs: number;
+  trigger: "scheduled" | "manual";
+}
+
+export interface GristWorker {
+  configured: boolean;
+  running: boolean;
+  lastRunAt: number | null;
+  lastTickAt: number | null;
+  nextTickAt: number | null;
+  lastSummary: {
+    lastSyncAt: string;
+    synced: number;
+    photosDownloaded: number;
+    skippedNoEmail: number;
+    errors: number;
+  } | null;
+  recent: GristRun[];
 }
 
 export interface LiveFeed {
@@ -59,4 +92,5 @@ export interface LiveResponse {
   progress: SyncProgress;
   feeds: LiveFeed[];
   recentActivity: LiveActivity[];
+  grist: GristWorker;
 }
