@@ -3,9 +3,12 @@ import { v4 as uuidv4 } from "uuid";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
+import { withActivity } from "@/lib/activity-fetch";
 import { newDate, normalizeAllDayDate } from "@/lib/date-utils";
+import { logger } from "@/lib/logger";
 import { DEFAULT_TASK_COLOR } from "@/lib/task-utils";
 
+import { useActivityStore } from "@/store/activity";
 import { useTaskStore } from "@/store/task";
 
 import {
@@ -14,8 +17,108 @@ import {
   CalendarState,
   CalendarView,
   CalendarViewState,
+  LoadedRange,
 } from "@/types/calendar";
 import { TaskStatus } from "@/types/task";
+
+const LOG_SOURCE = "CalendarStore";
+
+// -----------------------------------------------------------------------------
+// Windowed-fetch helpers (pure, unit-tested in
+// src/store/__tests__/calendar-windowing.test.ts).
+// -----------------------------------------------------------------------------
+
+// De-dupe key for an in-flight window fetch.
+function rangeKey(start: Date, end: Date): string {
+  return `${start.getTime()}-${end.getTime()}`;
+}
+
+// Convert an envelope event (ISO strings for dates) into the store's
+// CalendarEvent shape (Date objects), so getExpandedEvents' `instanceof Date`
+// paths and FullCalendar receive real Dates.
+//
+// todo(ws4): this is the single seam where a defensive client-side
+// `status !== "cancelled"` guard could slot in if WS4 wants belt-and-braces on
+// top of the server-side includeCancelled=false filter. Left additive on
+// purpose — do not add the filter here; WS4 owns that decision + tests.
+function normalize(event: CalendarEvent): CalendarEvent {
+  return {
+    ...event,
+    start: event.start instanceof Date ? event.start : newDate(event.start),
+    end: event.end instanceof Date ? event.end : newDate(event.end),
+    created:
+      event.created == null
+        ? event.created
+        : event.created instanceof Date
+          ? event.created
+          : newDate(event.created),
+    lastModified:
+      event.lastModified == null
+        ? event.lastModified
+        : event.lastModified instanceof Date
+          ? event.lastModified
+          : newDate(event.lastModified),
+  };
+}
+
+// Merge freshly fetched events into the existing set, de-duplicated by id
+// (newest wins). Windows overlap, so the same materialized instance can arrive
+// more than once.
+//
+// todo(perf): LRU-by-range eviction for long sessions on dense archives. For v1
+// this grows unbounded within a session and is cleared on reload.
+export function mergeEvents(
+  prev: CalendarEvent[],
+  incoming: CalendarEvent[]
+): CalendarEvent[] {
+  const byId = new Map<string, CalendarEvent>();
+  for (const e of prev) byId.set(e.id, e);
+  for (const e of incoming) byId.set(e.id, normalize(e));
+  return [...byId.values()];
+}
+
+// Insert a window into the coverage index, coalescing overlapping/adjacent
+// NON-truncated ranges so the union stays a small sorted list. Truncated
+// windows are kept but never merged into coverage (isCovered ignores them).
+export function addRange(
+  ranges: LoadedRange[],
+  next: LoadedRange
+): LoadedRange[] {
+  if (next.truncated) {
+    return [...ranges, next];
+  }
+  const solid = ranges.filter((r) => !r.truncated);
+  const truncated = ranges.filter((r) => r.truncated);
+
+  const merged: LoadedRange[] = [];
+  const all = [...solid, next].sort((a, b) => a.start - b.start);
+  for (const r of all) {
+    const last = merged[merged.length - 1];
+    if (last && r.start <= last.end) {
+      // Overlapping or adjacent: extend the running range.
+      if (r.end > last.end) last.end = r.end;
+      last.fetchedAt = Math.max(last.fetchedAt, r.fetchedAt);
+    } else {
+      merged.push({ ...r });
+    }
+  }
+  return [...merged, ...truncated];
+}
+
+// Is [start, end) fully contained in the union of non-truncated ranges?
+export function isCovered(
+  ranges: LoadedRange[],
+  start: Date,
+  end: Date
+): boolean {
+  const s = start.getTime();
+  const e = end.getTime();
+  return ranges.some((r) => !r.truncated && r.start <= s && r.end >= e);
+}
+
+// In-flight window keys — module-level (not store state) to avoid re-render
+// churn. Dedupes concurrent identical fetches.
+const inFlightWindows = new Set<string>();
 
 // Separate store for view preferences that will be persisted in localStorage
 interface ViewStore extends CalendarViewState {
@@ -114,6 +217,19 @@ interface CalendarStore extends CalendarState {
   // Data loading
   loadFromDatabase: () => Promise<void>;
 
+  // Windowed, incremental event fetching
+  loadFeeds: () => Promise<void>;
+  fetchWindow: (
+    start: Date,
+    end: Date,
+    opts?: { background?: boolean; force?: boolean }
+  ) => Promise<void>;
+  prefetchAdjacent: (start: Date, end: Date) => void;
+  invalidateAndReload: (start: Date, end: Date) => Promise<void>;
+  // Invalidate + refetch whatever window the user is currently viewing. Used by
+  // mutations (add/update/remove/sync) that previously reloaded everything.
+  reloadCurrentWindow: () => Promise<void>;
+
   // State management
   setFeeds: (feeds: CalendarFeed[]) => void;
   setEvents: (events: CalendarEvent[]) => void;
@@ -142,6 +258,9 @@ export const useCalendarStore = create<CalendarStore>()((set, get) => ({
   events: [],
   isLoading: false,
   error: undefined,
+  loadedRanges: [],
+  fetchGeneration: 0,
+  currentWindow: undefined,
   selectedDate: newDate(),
   selectedView: "week",
 
@@ -363,8 +482,21 @@ export const useCalendarStore = create<CalendarStore>()((set, get) => ({
           f.id === id ? { ...f, enabled: !f.enabled } : f
         ),
       }));
+
+      // The window fetch filters by enabled feeds server-side (enabledOnly),
+      // so enabling/disabling a feed changes which events belong in the current
+      // window. Invalidate + refetch so the newly enabled feed's events appear
+      // (and a disabled feed's events drop out).
+      const w = get().currentWindow;
+      if (w) {
+        await get().invalidateAndReload(newDate(w.start), newDate(w.end));
+      }
     } catch (error) {
-      console.error("Failed to toggle feed:", error);
+      logger.error(
+        "Failed to toggle feed",
+        { error: error instanceof Error ? error.message : String(error) },
+        LOG_SOURCE
+      );
       throw error;
     }
   },
@@ -439,7 +571,7 @@ export const useCalendarStore = create<CalendarStore>()((set, get) => ({
         }
 
         // Reload from database to get the latest state
-        await get().loadFromDatabase();
+        await get().reloadCurrentWindow();
 
         // Trigger auto-scheduling after event is created
         const { triggerScheduleAllTasks } = useTaskStore.getState();
@@ -460,7 +592,7 @@ export const useCalendarStore = create<CalendarStore>()((set, get) => ({
         }
 
         // Reload from database to get the latest state
-        await get().loadFromDatabase();
+        await get().reloadCurrentWindow();
 
         // Trigger auto-scheduling after event is created
         const { triggerScheduleAllTasks } = useTaskStore.getState();
@@ -481,7 +613,7 @@ export const useCalendarStore = create<CalendarStore>()((set, get) => ({
         }
 
         // Reload from database to get the latest state
-        await get().loadFromDatabase();
+        await get().reloadCurrentWindow();
 
         // Trigger auto-scheduling after event is created
         const { triggerScheduleAllTasks } = useTaskStore.getState();
@@ -492,7 +624,11 @@ export const useCalendarStore = create<CalendarStore>()((set, get) => ({
       // For other calendars, throw an error
       throw new Error("Unsupported calendar type");
     } catch (error) {
-      console.error("Failed to add event:", error);
+      logger.error(
+        "Failed to add event",
+        { error: error instanceof Error ? error.message : String(error) },
+        LOG_SOURCE
+      );
       throw error;
     }
   },
@@ -519,7 +655,7 @@ export const useCalendarStore = create<CalendarStore>()((set, get) => ({
         }
 
         // Reload from database to get the latest state
-        await get().loadFromDatabase();
+        await get().reloadCurrentWindow();
         // Trigger auto-scheduling after event is created
         const { triggerScheduleAllTasks } = useTaskStore.getState();
         await triggerScheduleAllTasks();
@@ -539,7 +675,7 @@ export const useCalendarStore = create<CalendarStore>()((set, get) => ({
         }
 
         // Reload from database to get the latest state
-        await get().loadFromDatabase();
+        await get().reloadCurrentWindow();
         // Trigger auto-scheduling after event is created
         const { triggerScheduleAllTasks } = useTaskStore.getState();
         await triggerScheduleAllTasks();
@@ -559,7 +695,7 @@ export const useCalendarStore = create<CalendarStore>()((set, get) => ({
         }
 
         // Reload from database to get the latest state
-        await get().loadFromDatabase();
+        await get().reloadCurrentWindow();
         // Trigger auto-scheduling after event is created
         const { triggerScheduleAllTasks } = useTaskStore.getState();
         await triggerScheduleAllTasks();
@@ -569,7 +705,11 @@ export const useCalendarStore = create<CalendarStore>()((set, get) => ({
       // For other calendars, throw an error
       throw new Error("Unsupported calendar type");
     } catch (error) {
-      console.error("Failed to update event:", error);
+      logger.error(
+        "Failed to update event",
+        { error: error instanceof Error ? error.message : String(error) },
+        LOG_SOURCE
+      );
       throw error;
     }
   },
@@ -627,12 +767,16 @@ export const useCalendarStore = create<CalendarStore>()((set, get) => ({
       }
 
       // Reload from database to get the latest state
-      await get().loadFromDatabase();
+      await get().reloadCurrentWindow();
       // Trigger auto-scheduling after event is created
       const { triggerScheduleAllTasks } = useTaskStore.getState();
       await triggerScheduleAllTasks();
     } catch (error) {
-      console.error("Failed to remove event:", error);
+      logger.error(
+        "Failed to remove event",
+        { error: error instanceof Error ? error.message : String(error) },
+        LOG_SOURCE
+      );
       throw error;
     }
   },
@@ -679,12 +823,16 @@ export const useCalendarStore = create<CalendarStore>()((set, get) => ({
       }
 
       // Reload events from database
-      await get().loadFromDatabase();
+      await get().reloadCurrentWindow();
       // Trigger auto-scheduling after event is created
       const { triggerScheduleAllTasks } = useTaskStore.getState();
       await triggerScheduleAllTasks();
     } catch (error) {
-      console.error("Failed to sync feed:", error);
+      logger.error(
+        "Failed to sync feed",
+        { error: error instanceof Error ? error.message : String(error) },
+        LOG_SOURCE
+      );
       // Update feed with error
       await get().updateFeed(id, {
         error: error instanceof Error ? error.message : "Unknown error",
@@ -704,39 +852,158 @@ export const useCalendarStore = create<CalendarStore>()((set, get) => ({
   },
 
   // Data loading
+  //
+  // Thin compatibility shim: events are now fetched per-window via
+  // fetchWindow(), so a global events load no longer exists. External callers
+  // that only need feeds (settings pages) still call this; it delegates to
+  // loadFeeds(). The first events fetch is driven by each view's datesSet.
   loadFromDatabase: async () => {
+    await get().loadFeeds();
+  },
+
+  // Feeds-only load. No view range is known here, so it never fetches events.
+  loadFeeds: async () => {
     try {
       set({ isLoading: true, error: undefined });
-
-      // Load feeds
-      // console.log("Fetching feeds...");
       const feedsResponse = await fetch("/api/feeds");
       if (!feedsResponse.ok) {
         throw new Error("Failed to load feeds from database");
       }
       const feeds = await feedsResponse.json();
-      // console.log("Loaded feeds:", feeds);
-
-      // Load events
-      // console.log("Fetching events...");
-      const eventsResponse = await fetch("/api/events");
-      if (!eventsResponse.ok) {
-        throw new Error("Failed to load events from database");
-      }
-      const events = await eventsResponse.json();
-      // console.log("Loaded events:", events);
-
-      // console.log("Setting state with loaded data:", {
-      //   feeds: feeds.length,
-      //   events: events.length,
-      // });
-      set({ feeds, events });
+      set({ feeds });
     } catch (error) {
-      console.error("Failed to load data from database:", error);
+      logger.error(
+        "Failed to load feeds from database",
+        { error: error instanceof Error ? error.message : String(error) },
+        LOG_SOURCE
+      );
       set({ error: error instanceof Error ? error.message : "Unknown error" });
     } finally {
       set({ isLoading: false });
     }
+  },
+
+  // Windowed, incremental event fetch. Fetches events overlapping [start, end)
+  // via GET /api/calendar/events and merges them into the store. Skips the
+  // network when the window is already covered by the cache (unless force).
+  fetchWindow: async (start, end, opts) => {
+    const background = opts?.background ?? false;
+    const force = opts?.force ?? false;
+    const key = rangeKey(start, end);
+
+    // Cache hit: already covered by a non-truncated loaded range.
+    if (!force && isCovered(get().loadedRanges, start, end)) {
+      set({ currentWindow: { start: start.getTime(), end: end.getTime() } });
+      return;
+    }
+    // De-dupe concurrent identical fetches.
+    if (inFlightWindows.has(key)) return;
+    inFlightWindows.add(key);
+
+    // Snapshot the generation so an invalidation mid-flight drops this result.
+    const gen = get().fetchGeneration;
+    if (!background) set({ isLoading: true, error: undefined });
+    // A foreground fetch defines the "current window" for mutation reloads.
+    if (!background) {
+      set({ currentWindow: { start: start.getTime(), end: end.getTime() } });
+    }
+
+    try {
+      await withActivity(
+        { path: "/api/calendar/events", method: "GET", label: "Loading events" },
+        async () => {
+          const url = `/api/calendar/events?start=${encodeURIComponent(
+            start.toISOString()
+          )}&end=${encodeURIComponent(end.toISOString())}&fields=full`;
+          const res = await fetch(url);
+          if (!res.ok) {
+            throw new Error("Failed to fetch calendar events");
+          }
+          const env = await res.json();
+
+          // Invalidated mid-flight: discard this stale result.
+          if (get().fetchGeneration !== gen) return;
+
+          const incoming: CalendarEvent[] = env.events ?? [];
+          const truncated: boolean = env.truncated === true;
+
+          set((state) => ({
+            events: mergeEvents(state.events, incoming),
+            loadedRanges: addRange(state.loadedRanges, {
+              start: start.getTime(),
+              end: end.getTime(),
+              fetchedAt: Date.now(),
+              truncated,
+            }),
+          }));
+
+          // Never silently drop events: raise a loud, dismissible nav warning
+          // when the window hit the row cap. Suppressed for background prefetch
+          // (the user is not looking at that window).
+          if (truncated && !background) {
+            useActivityStore
+              .getState()
+              .warn("Some events not shown — narrow your view", {
+                ttlMs: 8000,
+              });
+          }
+        }
+      );
+    } catch (error) {
+      logger.error(
+        "Failed to fetch calendar window",
+        {
+          error: error instanceof Error ? error.message : String(error),
+          start: start.toISOString(),
+          end: end.toISOString(),
+          background,
+        },
+        LOG_SOURCE
+      );
+      if (!background) {
+        set({
+          error: error instanceof Error ? error.message : "Unknown error",
+        });
+      }
+    } finally {
+      inFlightWindows.delete(key);
+      if (!background) set({ isLoading: false });
+    }
+  },
+
+  // Fire-and-forget prefetch of the windows immediately before and after
+  // [start, end) so navigation to the previous/next period feels instant.
+  // View-agnostic: uses the current window's own span (a month for month view,
+  // a week for week view, etc.). Background fetches never toggle isLoading and
+  // never raise the truncation warning.
+  prefetchAdjacent: (start, end) => {
+    const span = end.getTime() - start.getTime();
+    if (span <= 0) return;
+    const prevStart = newDate(start.getTime() - span);
+    const prevEnd = newDate(start.getTime());
+    const nextStart = newDate(end.getTime());
+    const nextEnd = newDate(end.getTime() + span);
+    get().fetchWindow(prevStart, prevEnd, { background: true });
+    get().fetchWindow(nextStart, nextEnd, { background: true });
+  },
+
+  // Drop all cached coverage + merged events and refetch the given window.
+  // Bumping fetchGeneration cancels any in-flight window merges.
+  invalidateAndReload: async (start, end) => {
+    set((state) => ({
+      loadedRanges: [],
+      events: [],
+      fetchGeneration: state.fetchGeneration + 1,
+    }));
+    await get().fetchWindow(start, end, { force: true });
+    get().prefetchAdjacent(start, end);
+  },
+
+  // Invalidate + refetch whatever window the user is currently viewing.
+  reloadCurrentWindow: async () => {
+    const w = get().currentWindow;
+    if (!w) return;
+    await get().invalidateAndReload(newDate(w.start), newDate(w.end));
   },
 
   setFeeds: (feeds) => set({ feeds }),
@@ -760,18 +1027,10 @@ export const useCalendarStore = create<CalendarStore>()((set, get) => ({
     }
   },
 
+  // Kept for API compatibility. Events are windowed now, so this refetches the
+  // window the user is currently viewing rather than the whole dataset.
   refreshEvents: async () => {
-    try {
-      set({ isLoading: true, error: undefined });
-      const response = await fetch("/api/events");
-      if (!response.ok) throw new Error("Failed to fetch calendar events");
-      const events = await response.json();
-      set({ events });
-    } catch (error) {
-      set({ error: error instanceof Error ? error.message : "Unknown error" });
-    } finally {
-      set({ isLoading: false });
-    }
+    await get().reloadCurrentWindow();
   },
 
   syncCalendar: async (feedId: string) => {
@@ -800,8 +1059,9 @@ export const useCalendarStore = create<CalendarStore>()((set, get) => ({
         throw new Error(data.error || "Failed to sync calendar");
       }
 
-      // Refresh events after sync
-      await get().refreshEvents();
+      // Refresh events after sync — invalidate the cache and refetch the
+      // window the user is currently viewing.
+      await get().reloadCurrentWindow();
     } catch (error) {
       set({ error: error instanceof Error ? error.message : "Unknown error" });
     } finally {

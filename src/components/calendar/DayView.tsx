@@ -38,6 +38,10 @@ interface DayViewProps {
 export function DayView({ currentDate, onDateClick }: DayViewProps) {
   const { feeds, getAllCalendarItems, isLoading, removeEvent } =
     useCalendarStore();
+  // Subscribe to the merged windowed event set + invalidation counter so the
+  // grid re-projects when a foreground/background/invalidated window resolves.
+  const storeEvents = useCalendarStore((s) => s.events);
+  const fetchGeneration = useCalendarStore((s) => s.fetchGeneration);
   const { user: userSettings, calendar: calendarSettings } = useSettingsStore();
   const { updateTask } = useTaskStore();
   const [selectedEvent, setSelectedEvent] = useState<Partial<CalendarEvent>>();
@@ -74,6 +78,13 @@ export function DayView({ currentDate, onDateClick }: DayViewProps) {
   // Update events when the calendar view changes
   const handleDatesSet = useCallback(
     async (arg: DatesSetArg) => {
+      // Kick a windowed fetch for the visible range + prefetch adjacent windows
+      // (fire and forget; the sync projection below renders current store data).
+      const store = useCalendarStore.getState();
+      store
+        .fetchWindow(arg.start, arg.end)
+        .then(() => store.prefetchAdjacent(arg.start, arg.end));
+
       const items = getAllCalendarItems(arg.start, arg.end);
       const formattedItems = items
         .filter((item) => {
@@ -114,15 +125,14 @@ export function DayView({ currentDate, onDateClick }: DayViewProps) {
     [feeds, getAllCalendarItems]
   );
 
-  // Initial data load
+  // Initial data load — feeds only; events are fetched per-window via
+  // handleDatesSet. Tasks loaded if empty.
   useEffect(() => {
-    // Only load data if the store is empty - the parent component may have
-    // already loaded data from the server
     const state = useCalendarStore.getState();
     const taskState = useTaskStore.getState();
 
-    if (state.events.length === 0 || state.feeds.length === 0) {
-      state.loadFromDatabase();
+    if (state.feeds.length === 0) {
+      state.loadFeeds();
     }
 
     if (taskState.tasks.length === 0) {
@@ -130,7 +140,8 @@ export function DayView({ currentDate, onDateClick }: DayViewProps) {
     }
   }, []);
 
-  // Update items when loading state changes, feeds change, or tasks change
+  // Update items when loading state changes, feeds change, tasks change, or a
+  // window merge lands (storeEvents / fetchGeneration).
   useEffect(() => {
     if (!isLoading && calendarRef.current) {
       const calendar = calendarRef.current.getApi();
@@ -143,7 +154,15 @@ export function DayView({ currentDate, onDateClick }: DayViewProps) {
         view: calendar.view,
       });
     }
-  }, [isLoading, feeds, userSettings.timeZone, handleDatesSet, tasks]);
+  }, [
+    isLoading,
+    feeds,
+    userSettings.timeZone,
+    handleDatesSet,
+    tasks,
+    storeEvents,
+    fetchGeneration,
+  ]);
 
   // Update calendar date when currentDate changes
   useEffect(() => {

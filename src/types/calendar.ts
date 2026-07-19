@@ -74,11 +74,30 @@ export enum AttendeeStatus {
   NEEDS_ACTION = "NEEDS-ACTION",
 }
 
+// A half-open [start, end) window (epoch ms) that has been fetched into the
+// store. `truncated` windows are recorded but deliberately NOT treated as full
+// coverage, so re-navigating to them re-fetches (see isCovered).
+export interface LoadedRange {
+  start: number; // epoch ms (inclusive)
+  end: number; // epoch ms (exclusive)
+  fetchedAt: number; // epoch ms
+  truncated: boolean; // this window hit the server row cap
+}
+
 export interface CalendarState {
   feeds: CalendarFeed[];
+  // Merged, de-duplicated union of every window fetched so far this session.
+  // getExpandedEvents/getAllCalendarItems filter this to the visible range.
   events: CalendarEvent[];
   isLoading: boolean;
   error?: string;
+  // Coverage index of fetched windows (foreground fetches only).
+  loadedRanges: LoadedRange[];
+  // Bumped on cache invalidation to cancel stale in-flight window merges.
+  fetchGeneration: number;
+  // The most recently requested window, so mutation actions can refetch the
+  // range the user is currently looking at without threading it through the UI.
+  currentWindow?: { start: number; end: number };
 }
 
 export type CalendarView = "day" | "week" | "month" | "multiMonth" | "agenda";

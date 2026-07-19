@@ -38,6 +38,10 @@ interface WeekViewProps {
 export function WeekView({ currentDate, onDateClick }: WeekViewProps) {
   const { feeds, getAllCalendarItems, isLoading, removeEvent } =
     useCalendarStore();
+  // Subscribe to the merged windowed event set + invalidation counter so the
+  // grid re-projects when a foreground/background/invalidated window resolves.
+  const storeEvents = useCalendarStore((s) => s.events);
+  const fetchGeneration = useCalendarStore((s) => s.fetchGeneration);
   const { user: userSettings, calendar: calendarSettings } = useSettingsStore();
   const { updateTask } = useTaskStore();
   const [selectedEvent, setSelectedEvent] = useState<Partial<CalendarEvent>>();
@@ -74,6 +78,15 @@ export function WeekView({ currentDate, onDateClick }: WeekViewProps) {
   // Update events when the calendar view changes
   const handleDatesSet = useCallback(
     async (arg: DatesSetArg) => {
+      // Kick a windowed fetch for the newly visible range (cache-aware), then
+      // prefetch the adjacent windows so navigation feels instant. Fire and
+      // forget — the synchronous projection below renders whatever is already
+      // in the store; the fetch triggers a re-projection when it resolves.
+      const store = useCalendarStore.getState();
+      store
+        .fetchWindow(arg.start, arg.end)
+        .then(() => store.prefetchAdjacent(arg.start, arg.end));
+
       // Get all calendar items with current task data
       const items = getAllCalendarItems(arg.start, arg.end);
       const formattedItems = items
@@ -124,18 +137,19 @@ export function WeekView({ currentDate, onDateClick }: WeekViewProps) {
     [feeds, getAllCalendarItems]
   );
 
-  // Initial data load
+  // Initial data load — feeds only; events are fetched per-window via
+  // handleDatesSet (which FullCalendar fires on mount).
   useEffect(() => {
     Promise.all([
-      useCalendarStore.getState().loadFromDatabase(),
+      useCalendarStore.getState().loadFeeds(),
       useTaskStore.getState().fetchTasks(),
     ]);
   }, []);
 
-  // Update items when loading state changes, feeds change, or tasks change
+  // Update items when loading state changes, feeds change, tasks change, or a
+  // window merge lands (storeEvents / fetchGeneration).
   useEffect(() => {
     if (!isLoading && calendarRef.current) {
-      console.log("Updating calendar items due to dependency change");
       const calendar = calendarRef.current.getApi();
       handleDatesSet({
         start: calendar.view.activeStart,
@@ -146,7 +160,15 @@ export function WeekView({ currentDate, onDateClick }: WeekViewProps) {
         view: calendar.view,
       });
     }
-  }, [isLoading, feeds, userSettings.timeZone, handleDatesSet, tasks]);
+  }, [
+    isLoading,
+    feeds,
+    userSettings.timeZone,
+    handleDatesSet,
+    tasks,
+    storeEvents,
+    fetchGeneration,
+  ]);
 
   // Update calendar date when currentDate changes
   useEffect(() => {

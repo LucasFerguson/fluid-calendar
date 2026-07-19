@@ -59,9 +59,11 @@ export function Calendar({
       setEvents(initialEvents);
     }
 
-    // Only fetch from database if we didn't get initial data
-    if (!initialFeeds.length || !initialEvents.length) {
-      useCalendarStore.getState().loadFromDatabase();
+    // Load feeds if we didn't get them from the server. Events are no longer
+    // pre-loaded or globally fetched — each view's datesSet drives a windowed
+    // fetch keyed on the visible range.
+    if (!initialFeeds.length) {
+      useCalendarStore.getState().loadFeeds();
     }
 
     // Always fetch tasks since they're not pre-loaded

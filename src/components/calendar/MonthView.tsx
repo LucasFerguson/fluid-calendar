@@ -38,6 +38,10 @@ interface MonthViewProps {
 export function MonthView({ currentDate, onDateClick }: MonthViewProps) {
   const { feeds, getAllCalendarItems, isLoading, removeEvent } =
     useCalendarStore();
+  // Subscribe to the merged windowed event set + invalidation counter so the
+  // grid re-projects when a foreground/background/invalidated window resolves.
+  const storeEvents = useCalendarStore((s) => s.events);
+  const fetchGeneration = useCalendarStore((s) => s.fetchGeneration);
   const { user: userSettings } = useSettingsStore();
   const { updateTask } = useTaskStore();
   const [selectedEvent, setSelectedEvent] = useState<Partial<CalendarEvent>>();
@@ -74,6 +78,13 @@ export function MonthView({ currentDate, onDateClick }: MonthViewProps) {
   // Update events when the calendar view changes
   const handleDatesSet = useCallback(
     async (arg: DatesSetArg) => {
+      // Kick a windowed fetch for the visible range + prefetch adjacent windows
+      // (fire and forget; the sync projection below renders current store data).
+      const store = useCalendarStore.getState();
+      store
+        .fetchWindow(arg.start, arg.end)
+        .then(() => store.prefetchAdjacent(arg.start, arg.end));
+
       const items = getAllCalendarItems(arg.start, arg.end);
       const formattedItems = items
         .filter((item) => {
@@ -119,15 +130,17 @@ export function MonthView({ currentDate, onDateClick }: MonthViewProps) {
     [feeds, getAllCalendarItems]
   );
 
-  // Initial data load
+  // Initial data load — feeds only; events are fetched per-window via
+  // handleDatesSet (which FullCalendar fires on mount).
   useEffect(() => {
     Promise.all([
-      useCalendarStore.getState().loadFromDatabase(),
+      useCalendarStore.getState().loadFeeds(),
       useTaskStore.getState().fetchTasks(),
     ]);
   }, []);
 
-  // Update items when loading state changes, feeds change, or tasks change
+  // Update items when loading state changes, feeds change, tasks change, or a
+  // window merge lands (storeEvents / fetchGeneration).
   useEffect(() => {
     if (!isLoading && calendarRef.current) {
       const calendar = calendarRef.current.getApi();
@@ -140,7 +153,15 @@ export function MonthView({ currentDate, onDateClick }: MonthViewProps) {
         view: calendar.view,
       });
     }
-  }, [isLoading, feeds, userSettings.timeZone, handleDatesSet, tasks]);
+  }, [
+    isLoading,
+    feeds,
+    userSettings.timeZone,
+    handleDatesSet,
+    tasks,
+    storeEvents,
+    fetchGeneration,
+  ]);
 
   // Update calendar date when currentDate changes
   useEffect(() => {
