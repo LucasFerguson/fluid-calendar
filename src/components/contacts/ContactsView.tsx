@@ -1,11 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
-import { HiChevronDown, HiChevronUp } from "react-icons/hi";
+import { HiChevronDown, HiChevronUp, HiDownload } from "react-icons/hi";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -26,6 +27,7 @@ import { cn } from "@/lib/utils";
 
 import { ContactAvatar } from "./ContactAvatar";
 import { ContactDetailDialog } from "./ContactDetailDialog";
+import { toCsv } from "./csv";
 import { formatDay } from "./format";
 import { ContactsResponse, ContactSummary } from "./types";
 
@@ -37,6 +39,18 @@ async function fetchJson<T>(url: string): Promise<T> {
 
 // Radix Select items can't have an empty-string value, so "all" is a sentinel.
 const ALL_COMPANIES = "all";
+
+const PAGE_SIZE = 50;
+
+function downloadCsv(rows: ContactSummary[]) {
+  const blob = new Blob([toCsv(rows)], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `contacts-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 type SortKey =
   | "name"
@@ -96,6 +110,7 @@ export function ContactsView() {
     key: "lastMeeting",
     dir: "desc",
   });
+  const [page, setPage] = useState(1);
 
   const contacts = useQuery<ContactsResponse>({
     queryKey: ["contacts"],
@@ -127,6 +142,19 @@ export function ContactsView() {
       (a, b) => compare(a, b, sort.key) * factor || a.email.localeCompare(b.email)
     );
   }, [all, company, sort]);
+
+  // Paginate the sorted/filtered set (all rows are already in memory). Reset to
+  // the first page whenever the filter or sort changes so you don't land on a
+  // now-empty page.
+  useEffect(() => setPage(1), [company, sort]);
+  const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount);
+  const pageRows = rows.slice(
+    (currentPage - 1) * PAGE_SIZE,
+    currentPage * PAGE_SIZE
+  );
+  const rangeStart = rows.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1;
+  const rangeEnd = Math.min(currentPage * PAGE_SIZE, rows.length);
 
   const toggleSort = (key: SortKey) =>
     setSort((prev) =>
@@ -179,21 +207,33 @@ export function ContactsView() {
               : ""}
           </p>
         </div>
-        {companies.length > 0 && (
-          <Select value={company} onValueChange={setCompany}>
-            <SelectTrigger className="w-48">
-              <SelectValue placeholder="Company" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL_COMPANIES}>All companies</SelectItem>
-              {companies.map((name) => (
-                <SelectItem key={name} value={name}>
-                  {name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => downloadCsv(rows)}
+            disabled={rows.length === 0}
+            title="Download the current list as CSV"
+          >
+            <HiDownload className="mr-1.5 h-4 w-4" />
+            Download CSV
+          </Button>
+          {companies.length > 0 && (
+            <Select value={company} onValueChange={setCompany}>
+              <SelectTrigger className="w-48">
+                <SelectValue placeholder="Company" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_COMPANIES}>All companies</SelectItem>
+                {companies.map((name) => (
+                  <SelectItem key={name} value={name}>
+                    {name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
       </div>
 
       {contacts.isLoading && (
@@ -255,7 +295,7 @@ export function ContactsView() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map((c) => (
+              {pageRows.map((c) => (
                 <TableRow
                   key={c.email}
                   className="cursor-pointer"
@@ -312,6 +352,36 @@ export function ContactsView() {
               ))}
             </TableBody>
           </Table>
+        </div>
+      )}
+
+      {rows.length > PAGE_SIZE && (
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-muted-foreground">
+            Showing {rangeStart.toLocaleString()}–{rangeEnd.toLocaleString()} of{" "}
+            {rows.length.toLocaleString()}
+          </span>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage <= 1}
+            >
+              Previous
+            </Button>
+            <span className="text-muted-foreground">
+              Page {currentPage} of {pageCount}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+              disabled={currentPage >= pageCount}
+            >
+              Next
+            </Button>
+          </div>
         </div>
       )}
 
