@@ -6,12 +6,7 @@ import { Calendar } from "@/components/calendar/Calendar";
 
 import { prisma } from "@/lib/prisma";
 
-import {
-  AttendeeStatus,
-  CalendarEvent,
-  CalendarFeed,
-  EventStatus,
-} from "@/types/calendar";
+import { CalendarFeed } from "@/types/calendar";
 
 export default async function HomePage() {
   const cookieHeader = await cookies();
@@ -27,7 +22,6 @@ export default async function HomePage() {
   const userId = token?.sub;
 
   let feeds: CalendarFeed[] = [];
-  let events: CalendarEvent[] = [];
 
   if (userId) {
     // Fetch calendar feeds
@@ -71,57 +65,17 @@ export default async function HomePage() {
       ctag: feed.ctag || undefined,
       account: feed.account,
     }));
-
-    // Fetch calendar events
-    const dbEvents = await prisma.calendarEvent.findMany({
-      where: {
-        feed: {
-          userId: userId,
-        },
-      },
-      include: {
-        feed: {
-          select: {
-            name: true,
-            color: true,
-          },
-        },
-      },
-    });
-
-    // Transform to match expected types
-    events = dbEvents.map((event) => ({
-      id: event.id,
-      feedId: event.feedId,
-      externalEventId: event.externalEventId || undefined,
-      title: event.title,
-      description: event.description || undefined,
-      start: event.start,
-      end: event.end,
-      location: event.location || undefined,
-      isRecurring: event.isRecurring,
-      recurrenceRule: event.recurrenceRule || undefined,
-      allDay: event.allDay,
-      status: event.status as EventStatus | undefined,
-      sequence: event.sequence || undefined,
-      created: event.created || undefined,
-      lastModified: event.lastModified || undefined,
-      organizer: event.organizer as
-        | { name?: string; email: string }
-        | undefined,
-      attendees: event.attendees as
-        | Array<{ name?: string; email: string; status?: AttendeeStatus }>
-        | undefined,
-      isMaster: event.isMaster,
-      masterEventId: event.masterEventId || undefined,
-      recurringEventId: event.recurringEventId || undefined,
-      feed: event.feed,
-    }));
   }
 
+  // Events are intentionally NOT preloaded here. The old unbounded SSR fetch
+  // pulled the user's entire event archive (including cancelled/archived rows,
+  // which it never filtered) into the first paint — the worst over-fetch and
+  // the source of archived-events-on-first-load. We now pass an empty set so
+  // Calendar falls back to the client fetch path (which is cancelled-filtered)
+  // until WS3 swaps it to the windowed GET /api/calendar/events endpoint.
   return (
     <div className="absolute inset-0">
-      <Calendar initialFeeds={feeds} initialEvents={events} />
+      <Calendar initialFeeds={feeds} initialEvents={[]} />
     </div>
   );
 }

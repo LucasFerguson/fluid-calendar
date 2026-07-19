@@ -209,6 +209,9 @@ model CalendarEvent {
   @@unique([feedId, externalEventId])
   @@index([feedId])
   @@index([start, end])
+  // Backs the windowed calendar fetch (GET /api/calendar/events): feed-scoped
+  // range scan for the start <= rangeEnd AND end >= rangeStart overlap window.
+  @@index([feedId, start, end])
   @@index([externalEventId])
   @@index([masterEventId])
   @@index([recurringEventId])

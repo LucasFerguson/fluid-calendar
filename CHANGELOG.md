@@ -23,9 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Contacts table columns are click-to-sort (name, company, first met, last meeting, next meeting, meeting count) and width-capped so long names/companies no longer stretch the layout; the table is now paginated (50/page) and has a Download CSV button exporting the current (filtered) list with the visible columns as YYYY-MM-DD dates
 - Attach contacts to an event for your own organization from the event quick-view popup (`EventContact` table, `GET/POST/DELETE /api/events/:id/contacts`). This is deliberately local-only — it never touches the Google sync, so attaching someone never sends them a calendar invite
 - "Create meeting note" button on events opens an Obsidian note (`obsidian://new`) in a configured vault/folder, pre-filled with the event title, date, and attendees (calendar guests + attached contacts). Vault and folder are set via `NEXT_PUBLIC_OBSIDIAN_VAULT` / `NEXT_PUBLIC_OBSIDIAN_MEETINGS_FOLDER`; see `docs/obsidian-uri.md`
+- Windowed calendar event API (`GET /api/calendar/events`) that returns only events overlapping a required `start`/`end` window instead of the user's entire archive. Supports `feedIds`, `enabledOnly` (default true — events on disabled calendars are excluded at the query level), `includeCancelled` (default false), `includeMasters` (default false), and `fields=slim|full`. Responds with a `{ events, window, count, hasMore, truncated }` envelope; a per-window row cap (default 5000) is never silent — hitting it logs a warning and sets `truncated: true` so the UI can surface a visible notice rather than dropping events. Backed by a new `CalendarEvent(feedId, start, end)` index
 
 ### Fixed
 
+- Calendar no longer loads the entire event archive (including cancelled/archived events) on first paint: the page's unbounded server-side event preload was removed, fixing archived events briefly showing on the calendar and a large over-fetch on every calendar load
 - Moving or editing an existing Google event failed after the archival changes (soft-cancel + the new `(feedId, externalEventId)` unique constraint broke the old delete-then-recreate update path); the update now upserts in place
 
 ### Changed
