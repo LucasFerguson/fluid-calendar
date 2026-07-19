@@ -110,9 +110,14 @@ Obsidian app:
 - `file` — `NEXT_PUBLIC_OBSIDIAN_MEETINGS_FOLDER` (currently
   `001-Home/Meetings/`) + `YYYY-MM-DD <event title>`, each path segment
   encoded.
-- `content` — a templated note: the event title/date as a heading, an
-  attendees list (calendar guests + locally attached contacts), and an empty
-  Notes section.
+- `content` — a templated note: an `#meeting` tag, the event date (human-
+  readable plus a `[[YYYY-MM-DD]]` daily-note link), location, an attendees
+  list wiki-linked by first+last name (`[[First Last]] (email)`), and empty
+  **Agenda**, **Notes**, **To-dos**, and **Follow-ups** sections.
+
+The event title becomes the file name; it is sanitized to be valid on Windows
+(the `\ / : * ? " < > |` characters plus Obsidian's `# ^ [ ]`, control chars,
+and any trailing dot/space are stripped).
 
 Because the URI is followed by the browser, the button only works on a device
 where the Obsidian desktop app is installed and the vault of that name exists.

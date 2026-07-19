@@ -30,13 +30,32 @@ export function isObsidianConfigured(): boolean {
   return !!process.env.NEXT_PUBLIC_OBSIDIAN_VAULT;
 }
 
-// Obsidian disallows these in file names; collapse them to keep the path valid.
+// Strip characters that are invalid in a Windows path/name (\ / : * ? " < > |),
+// plus Obsidian-special ones (# ^ [ ]) and any ASCII control chars, then trim
+// so the name can't end in a space or dot (also disallowed on Windows).
 function sanitizeFileName(name: string): string {
-  return name
+  const cleaned = Array.from(name)
+    .filter((c) => c.charCodeAt(0) >= 32)
+    .join("")
     .replace(/[\\/:*?"<>|#^[\]]/g, " ")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 100);
+  return cleaned.replace(/[. ]+$/g, "").trim();
+}
+
+// A wiki-linkable name: first + last name only (drop credential suffixes after
+// a comma and middle initials), with characters that would break a [[wikilink]]
+// removed, so it matches a "First Last" note in the vault.
+function personWikiName(name: string): string {
+  const words = name
+    .split(",")[0]
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter((w) => !/^[A-Za-z]\.?$/.test(w)); // drop middle initials like "A."
+  const picked =
+    words.length <= 1 ? words : [words[0], words[words.length - 1]];
+  return picked.join(" ").replace(/[[\]|#^]/g, "").trim() || name.trim();
 }
 
 function buildContent(input: MeetingNoteInput): string {
@@ -44,17 +63,37 @@ function buildContent(input: MeetingNoteInput): string {
   const lines = [
     `# ${input.title}`,
     "",
-    `- **Date:** ${format(start, "PPPp")}`,
+    "#meeting",
+    "",
+    // Human-readable date, plus a [[YYYY-MM-DD]] link back to the daily note.
+    `- **Date:** ${format(start, "PPPp")} · [[${format(start, "yyyy-MM-dd")}]]`,
   ];
   if (input.location) lines.push(`- **Location:** ${input.location}`);
   if (input.people.length > 0) {
     lines.push("- **Attendees:**");
     for (const p of input.people) {
-      const label = p.name ? `${p.name} (${p.email})` : p.email;
+      // Wiki-link the person's name (so it links to their vault note); keep the
+      // email as plain text alongside. Email-only attendees stay unlinked.
+      const label = p.name
+        ? `[[${personWikiName(p.name)}]] (${p.email})`
+        : p.email;
       lines.push(`  - ${label}`);
     }
   }
-  lines.push("", "## Notes", "", "");
+  lines.push(
+    "",
+    "## Agenda",
+    "",
+    "## Notes",
+    "",
+    "### To-dos",
+    "",
+    "- [ ] ",
+    "",
+    "### Follow-ups",
+    "",
+    ""
+  );
   return lines.join("\n");
 }
 
