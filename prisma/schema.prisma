@@ -199,6 +199,11 @@ model CalendarEvent {
   // as a denormalized copy the calendar UI reads directly.
   attendeeRecords  EventAttendee[]
 
+  // Locally attached contacts (organizational only). Deliberately separate from
+  // attendeeRecords/attendees: the Google sync never reads or writes these, so
+  // attaching a contact here never pushes to Google or sends an invite.
+  contactLinks     EventContact[]
+
   // Event identity within a feed. Backfill/incremental sync upserts on this
   // pair; nothing may create duplicate rows for the same external event.
   @@unique([feedId, externalEventId])
@@ -228,6 +233,23 @@ model EventAttendee {
   additionalGuests Int?
   createdAt        DateTime      @default(now())
 
+  @@index([eventId])
+  @@index([email])
+}
+
+// A contact attached to an event for the user's own organization only. This is
+// NOT an attendee: the Google sync never touches this table, so nothing here is
+// pushed to Google or turned into a calendar invitation. Keyed by lowercased
+// email so it lines up with the derived Contacts list and ContactProfile.
+model EventContact {
+  id        String        @id @default(cuid())
+  eventId   String
+  event     CalendarEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  email     String // lowercased
+  name      String? // display snapshot at attach time
+  createdAt DateTime      @default(now())
+
+  @@unique([eventId, email])
   @@index([eventId])
   @@index([email])
 }

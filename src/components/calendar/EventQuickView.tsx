@@ -24,6 +24,8 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 
+import { EventContactsSection } from "./EventContactsSection";
+
 import { AttendeeStatus, CalendarEvent } from "@/types/calendar";
 import { Priority, Task, TaskStatus } from "@/types/task";
 
@@ -238,6 +240,16 @@ export function EventQuickView({
                 <div className="event-description mt-2 line-clamp-2 text-xs text-muted-foreground">
                   {eventItem.description}
                 </div>
+              )}
+
+              {eventItem.id && (
+                <EventContactsSection
+                  eventId={eventItem.id}
+                  title={eventItem.title}
+                  start={eventItem.start}
+                  location={eventItem.location}
+                  attendees={eventItem.attendees}
+                />
               )}
             </div>
           )}
