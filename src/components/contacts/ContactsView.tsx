@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 
+import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -174,7 +175,16 @@ export function ContactsView() {
                     )}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">
-                    {c.meetings.toLocaleString()}
+                    {c.meetings > 0 ? (
+                      c.meetings.toLocaleString()
+                    ) : (
+                      <Badge
+                        variant="outline"
+                        className="font-normal text-muted-foreground"
+                      >
+                        No meetings yet
+                      </Badge>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}

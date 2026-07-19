@@ -56,8 +56,11 @@ export async function GET(request: NextRequest) {
     // isSelf, but also by email when invited via a different calendar).
     const ownEmail = (user?.email ?? "").toLowerCase();
 
-    // ContactProfile is the CRM enrichment overlay (see prisma/schema.prisma);
-    // its name override wins over the attendee-derived name.
+    // Two sources, joined on email: contacts derived from calendar attendees
+    // (agg) and the CRM profile overlay (prof, see prisma/schema.prisma). A
+    // FULL OUTER JOIN keeps CRM-only contacts (imported but not yet met, so
+    // meetings = 0 and all dates null) as well as met-but-un-enriched ones.
+    // The profile name override wins over the attendee-derived name.
     const contacts = await prisma.$queryRaw<ContactRow[]>`
       WITH agg AS (
         SELECT lower(a.email) AS email,
@@ -78,17 +81,24 @@ export async function GET(request: NextRequest) {
           AND a.email IS NOT NULL
           AND lower(a.email) <> ${ownEmail}
         GROUP BY lower(a.email)
+      ),
+      prof AS (
+        SELECT email, name, company, title, "photoUrl"
+        FROM "ContactProfile"
+        WHERE "userId" = ${userId} AND email <> ${ownEmail}
       )
-      SELECT agg.email,
-             COALESCE(p.name, agg.name) AS name,
-             agg.meetings, agg.first_met, agg.last_meeting, agg.next_meeting,
-             p.company,
-             p.title AS job_title,
-             p."photoUrl" AS photo_url
+      SELECT COALESCE(agg.email, prof.email) AS email,
+             COALESCE(prof.name, agg.name) AS name,
+             COALESCE(agg.meetings, 0) AS meetings,
+             agg.first_met, agg.last_meeting, agg.next_meeting,
+             prof.company,
+             prof.title AS job_title,
+             prof."photoUrl" AS photo_url
       FROM agg
-      LEFT JOIN "ContactProfile" p
-        ON p."userId" = ${userId} AND p.email = agg.email
-      ORDER BY agg.last_meeting DESC NULLS LAST, agg.next_meeting ASC`;
+      FULL OUTER JOIN prof ON prof.email = agg.email
+      ORDER BY agg.last_meeting DESC NULLS LAST,
+               agg.next_meeting ASC NULLS LAST,
+               COALESCE(agg.email, prof.email)`;
 
     return NextResponse.json({
       timeZone: tz,

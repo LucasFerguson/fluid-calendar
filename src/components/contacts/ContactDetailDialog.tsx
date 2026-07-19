@@ -105,8 +105,11 @@ export function ContactDetailDialog({ contact, onClose }: Props) {
                   .filter(Boolean)
                   .join(" · ") || null}
                 {(contact.title || contact.company) && " — "}
-                {contact.meetings.toLocaleString()}{" "}
-                {contact.meetings === 1 ? "shared event" : "shared events"}
+                {contact.meetings === 0
+                  ? "no shared events yet"
+                  : `${contact.meetings.toLocaleString()} ${
+                      contact.meetings === 1 ? "shared event" : "shared events"
+                    }`}
               </DialogDescription>
             </DialogHeader>
 
@@ -140,43 +143,53 @@ export function ContactDetailDialog({ contact, onClose }: Props) {
                       )}
                     </div>
                   )}
-                <div className="grid gap-2 sm:grid-cols-3">
-                  <Milestone label="First met" event={firstMet} />
-                  <Milestone label="Last meeting" event={lastMeeting} />
-                  <Milestone label="Next meeting" event={nextMeeting} />
-                </div>
-
-                <div>
-                  <div className="mb-2 text-xs uppercase tracking-wide text-muted-foreground">
-                    All shared events
+                {events.length === 0 ? (
+                  <div className="rounded-md border border-border bg-muted/30 p-6 text-center text-sm text-muted-foreground">
+                    No shared events yet. This contact was imported from the CRM
+                    and will link up once you share a calendar event with this
+                    email address.
                   </div>
-                  <ul className="divide-y divide-border rounded-md border border-border">
-                    {events.map((e) => (
-                      <li
-                        key={e.id}
-                        className="flex items-center gap-3 px-3 py-2 text-sm"
-                      >
-                        <span
-                          className="h-2.5 w-2.5 shrink-0 rounded-full"
-                          title={e.calendarName}
-                          style={{
-                            backgroundColor: getEventColors(e.calendarColor)
-                              .borderColor,
-                          }}
-                        />
-                        <span
-                          className="min-w-0 flex-1 truncate"
-                          title={e.title ?? undefined}
-                        >
-                          {e.title || "(untitled)"}
-                        </span>
-                        <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
-                          {formatDayTime(e.start, e.allDay)}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+                ) : (
+                  <>
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      <Milestone label="First met" event={firstMet} />
+                      <Milestone label="Last meeting" event={lastMeeting} />
+                      <Milestone label="Next meeting" event={nextMeeting} />
+                    </div>
+
+                    <div>
+                      <div className="mb-2 text-xs uppercase tracking-wide text-muted-foreground">
+                        All shared events
+                      </div>
+                      <ul className="divide-y divide-border rounded-md border border-border">
+                        {events.map((e) => (
+                          <li
+                            key={e.id}
+                            className="flex items-center gap-3 px-3 py-2 text-sm"
+                          >
+                            <span
+                              className="h-2.5 w-2.5 shrink-0 rounded-full"
+                              title={e.calendarName}
+                              style={{
+                                backgroundColor: getEventColors(e.calendarColor)
+                                  .borderColor,
+                              }}
+                            />
+                            <span
+                              className="min-w-0 flex-1 truncate"
+                              title={e.title ?? undefined}
+                            >
+                              {e.title || "(untitled)"}
+                            </span>
+                            <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
+                              {formatDayTime(e.start, e.allDay)}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </>

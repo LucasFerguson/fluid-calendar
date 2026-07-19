@@ -101,9 +101,10 @@ curl -X PUT http://localhost:3000/api/contacts/jane@example.com \
 ```
 
 Emails are matched case-insensitively (stored lowercased). A profile written
-for an email with no shared events yet is kept and will attach to the contact
-when events with that attendee sync in; until then it only shows via
-`GET /api/contacts/:email`, not in the list.
+for an email with no shared events yet still appears in `GET /api/contacts`
+(with `meetings: 0` and null dates — the UI marks it "No meetings yet") and
+links up to calendar history automatically once an event with that attendee
+syncs in.
 
 ### Grist CRM (external contacts pull)
 

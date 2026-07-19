@@ -14,9 +14,11 @@ const LOG_SOURCE = "GristSync";
 // and served from /api/contact-photos/:file, so nothing in the UI ever
 // hot-links the Grist instance (which may not serve images publicly at all).
 //
-// Grist owns: name, company, title (position), photoUrl. Notes are only copied
-// when Grist has text, so locally written notes aren't wiped by an empty CRM
-// field. Records without an email are skipped (email is the join key).
+// Grist is authoritative for the fields it owns: name, company, title
+// (position), phone, notes, photoUrl. Each sync overwrites them to exactly
+// what Grist holds - an empty Grist cell clears the stored value - so the
+// profile always mirrors the CRM. Records without an email are skipped (email
+// is the join key to calendar attendees).
 
 const PHOTO_DIR = path.join(process.cwd(), "data", "contact-photos");
 const STATUS_FILE = path.join(process.cwd(), "data", "grist-sync-status.json");
@@ -43,6 +45,21 @@ const EXT_BY_TYPE: Record<string, string> = {
 
 function str(v: unknown): string | null {
   return typeof v === "string" && v.trim() !== "" ? v.trim() : null;
+}
+
+// Grist derives a column's id from its label, so a "Phone" column could land
+// under any of these ids depending on how it was named. First non-empty wins.
+const PHONE_COLUMNS = ["phone", "Phone", "phone_number", "Phone_Number"];
+
+function pickStr(
+  fields: Record<string, unknown>,
+  keys: readonly string[]
+): string | null {
+  for (const k of keys) {
+    const v = str(fields[k]);
+    if (v) return v;
+  }
+  return null;
 }
 
 /** Grist encodes attachment/reference-list cells as ["L", id, id, ...]. */
@@ -157,36 +174,44 @@ export async function runGristSync(
         : null);
     const title = str(rec.fields.position);
     const notes = str(rec.fields.Notes);
+    const phone = pickStr(rec.fields, PHONE_COLUMNS);
 
     // Prefer the Grist attachment (stable, served by our own Grist box) over
     // photo_url, which for LinkedIn imports is a CDN link with an expiring
     // token. Fall back to the URL only if the attachment fails.
-    let photoUrl: string | undefined;
     const externalPhoto = str(rec.fields.photo_url);
     const attachmentId = firstAttachmentId(rec.fields.photo);
     const sources: Array<{ url: string } | { attachmentId: number }> = [
       ...(attachmentId ? [{ attachmentId }] : []),
       ...(externalPhoto ? [{ url: externalPhoto }] : []),
     ];
+    // undefined = leave the stored photo untouched (download failed);
+    // null = Grist has no photo, so clear it; string = the new local URL.
+    let photoUrl: string | null | undefined =
+      sources.length === 0 ? null : undefined;
     for (const source of sources) {
       try {
         photoUrl = await downloadPhoto(config, email, source);
         summary.photosDownloaded++;
         break;
       } catch (error) {
-        // Keep any previously downloaded photo; just report the failure.
         summary.errors.push(
           `${email}: ${error instanceof Error ? error.message : String(error)}`
         );
       }
     }
 
+    // Grist is the source of truth for these fields, so an empty Grist cell
+    // clears the stored value (null) rather than being skipped. photoUrl is
+    // only included when we have a definite value; if a download failed we
+    // leave whatever photo was previously synced in place.
     const fields = {
       name,
       company,
       title,
-      ...(notes ? { notes } : {}),
-      ...(photoUrl ? { photoUrl } : {}),
+      phone,
+      notes,
+      ...(photoUrl !== undefined ? { photoUrl } : {}),
     };
     await prisma.contactProfile.upsert({
       where: { userId_email: { userId, email } },
