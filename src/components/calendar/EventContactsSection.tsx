@@ -53,6 +53,14 @@ export function EventContactsSection({
   const [adding, setAdding] = useState(false);
   const [query, setQuery] = useState("");
 
+  // An event's attendees JSON is null for most events (only Google events with
+  // guests carry an array), and a default param only covers undefined, not
+  // null — so normalize to an array before iterating.
+  const eventAttendees = useMemo(
+    () => (Array.isArray(attendees) ? attendees : []),
+    [attendees]
+  );
+
   const attached = useQuery({
     queryKey: ["event-contacts", eventId],
     queryFn: () =>
@@ -130,14 +138,14 @@ export function EventContactsSection({
   // People written into the Obsidian note: Google attendees + local attaches.
   const notePeople: MeetingNotePerson[] = useMemo(() => {
     const byEmail = new Map<string, MeetingNotePerson>();
-    for (const a of attendees) {
+    for (const a of eventAttendees) {
       if (a.email) byEmail.set(a.email.toLowerCase(), { name: a.name, email: a.email });
     }
     for (const c of attachedList) {
       byEmail.set(c.email.toLowerCase(), { name: c.name, email: c.email });
     }
     return [...byEmail.values()];
-  }, [attendees, attachedList]);
+  }, [eventAttendees, attachedList]);
 
   const openNote = () => {
     window.location.href = buildMeetingNoteUri({
