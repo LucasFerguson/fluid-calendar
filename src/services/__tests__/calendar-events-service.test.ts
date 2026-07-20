@@ -2,6 +2,7 @@ jest.mock("@/lib/prisma", () => ({
   prisma: {
     calendarEvent: { findMany: jest.fn() },
     calendarFeed: { findUnique: jest.fn() },
+    userSettings: { findUnique: jest.fn() },
   },
 }));
 jest.mock("@/lib/google-calendar", () => ({
@@ -45,6 +46,38 @@ describe("calendar-events-service.listEvents", () => {
     expect(where.NOT).toEqual({
       AND: [{ isRecurring: true }, { isMaster: true }],
     });
+  });
+
+  it("formats start/end in the user's local timezone", async () => {
+    (
+      prisma as unknown as { userSettings: { findUnique: jest.Mock } }
+    ).userSettings.findUnique.mockResolvedValue({
+      timeZone: "America/Chicago",
+    });
+    mockPrisma.calendarEvent.findMany.mockResolvedValue([
+      {
+        id: "e1",
+        title: "Working on Fluid Calendar",
+        start: new Date("2026-07-20T01:30:00.000Z"), // 8:30 PM CDT Jul 19
+        end: new Date("2026-07-20T03:00:00.000Z"),
+        allDay: false,
+        location: null,
+        status: "confirmed",
+        isRecurring: false,
+        feed: { name: "Lucas Calendar Private" },
+      },
+    ]);
+
+    const [dto] = await listEvents({
+      userId: "u1",
+      start: "2026-07-19T00:00:00.000Z",
+      end: "2026-07-21T00:00:00.000Z",
+    });
+
+    expect(dto.timeZone).toBe("America/Chicago");
+    expect(dto.startLocal).toContain("8:30 PM");
+    expect(dto.startLocal).toContain("CDT");
+    expect(dto.start).toBe("2026-07-20T01:30:00.000Z"); // UTC still present
   });
 });
 

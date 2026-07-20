@@ -46,7 +46,7 @@ export const TOOLS: ToolDefinition[] = [
     name: "list_calendar_events",
     title: "List calendar events",
     description:
-      "List the user's calendar events that overlap a time window. Excludes deleted/archived events and events on disabled calendars. Use this to understand what is on the user's schedule.",
+      "List the user's calendar events that overlap a time window. Excludes deleted/archived events and events on disabled calendars. Each event includes startLocal/endLocal already formatted in the user's local timezone — present those to the user (the start/end fields are UTC for reference).",
     scope: "read",
     input: z.object({
       start: isoDate("Window start (inclusive)"),

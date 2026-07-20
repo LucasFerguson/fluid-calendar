@@ -3,12 +3,22 @@ import {
   buildCalendarEventsWhere,
 } from "@/app/api/calendar/events/query";
 import { writeGoogleEventToDatabase } from "@/lib/calendar/google-event-write";
-import { newDate } from "@/lib/date-utils";
+import { formatInTimeZone, newDate } from "@/lib/date-utils";
 import getGoogleEvent, { createGoogleEvent } from "@/lib/google-calendar";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 
 const LOG_SOURCE = "CalendarEventsService";
+
+const DEFAULT_TIME_ZONE = "America/Chicago";
+
+// Human-readable local time so weak models don't have to convert from UTC
+// (all-day events show just the date).
+function formatLocal(date: Date, timeZone: string, allDay: boolean): string {
+  return allDay
+    ? formatInTimeZone(date, timeZone, "EEE MMM d yyyy")
+    : formatInTimeZone(date, timeZone, "EEE MMM d yyyy, h:mm a zzz");
+}
 
 // Canonical read/write path for calendar events on the agent/MCP surface. Reads
 // reuse buildCalendarEventsWhere so the archived-event (status:"cancelled")
@@ -18,6 +28,11 @@ const LOG_SOURCE = "CalendarEventsService";
 export interface EventDTO {
   id: string;
   title: string;
+  /** Local wall-clock time in the user's timezone (present this to the user). */
+  startLocal: string;
+  endLocal: string;
+  timeZone: string;
+  /** Precise UTC instants, for any programmatic use. */
   start: string;
   end: string;
   allDay: boolean;
@@ -52,26 +67,37 @@ export async function listEvents(
     includeMasters: false,
   });
 
-  const events = await prisma.calendarEvent.findMany({
-    where,
-    select: {
-      id: true,
-      title: true,
-      start: true,
-      end: true,
-      allDay: true,
-      location: true,
-      status: true,
-      isRecurring: true,
-      feed: { select: { name: true } },
-    },
-    orderBy: { start: "asc" },
-    take: Math.min(Math.max(params.limit ?? 250, 1), DEFAULT_LIMIT),
-  });
+  const [settings, events] = await Promise.all([
+    prisma.userSettings.findUnique({
+      where: { userId },
+      select: { timeZone: true },
+    }),
+    prisma.calendarEvent.findMany({
+      where,
+      select: {
+        id: true,
+        title: true,
+        start: true,
+        end: true,
+        allDay: true,
+        location: true,
+        status: true,
+        isRecurring: true,
+        feed: { select: { name: true } },
+      },
+      orderBy: { start: "asc" },
+      take: Math.min(Math.max(params.limit ?? 250, 1), DEFAULT_LIMIT),
+    }),
+  ]);
+
+  const tz = settings?.timeZone || DEFAULT_TIME_ZONE;
 
   return events.map((e) => ({
     id: e.id,
     title: e.title,
+    startLocal: formatLocal(e.start, tz, e.allDay),
+    endLocal: formatLocal(e.end, tz, e.allDay),
+    timeZone: tz,
     start: e.start.toISOString(),
     end: e.end.toISOString(),
     allDay: e.allDay,
