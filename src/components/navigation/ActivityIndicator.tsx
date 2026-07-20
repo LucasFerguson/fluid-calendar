@@ -12,6 +12,8 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 
+import { SystemPulse } from "./SystemPulse";
+
 import { useElapsedSeconds } from "@/hooks/use-elapsed-seconds";
 
 import { cn } from "@/lib/utils";
@@ -151,6 +153,7 @@ export function ActivityIndicator() {
               </div>
             )}
           </div>
+          <SystemPulse />
         </PopoverContent>
       </Popover>
     </div>

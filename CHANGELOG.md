@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The nav activity indicator's panel now includes a "System pulse" section: live countdowns to the next calendar-sync and contacts/CRM-sync worker ticks, plus animated totals (events archived, contacts, deletions preserved, audit entries, calendars, CRM profiles) and years of history mirrored. Data comes from the existing stats endpoints and loads lazily when the panel opens
 - Recurring events can be deleted "this and following" (truncates the series' RRULE with `UNTIL`), alongside single-occurrence and whole-series deletes, from both the event modal and the quick-view popup
 - Per-calendar color override and background-opacity control (a calendar can be a faint always-on time-blocking base layer), with auto-contrasting event text so events stay legible on any color
 - Statistics dashboard (new nav tab): archive totals, a weekday×hour event heatmap, events-per-year and per-calendar breakdowns, animated count-up tiles, and a live sync panel showing per-calendar phase/page, elapsed run time, and a countdown to the next sync
