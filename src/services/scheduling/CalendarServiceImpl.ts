@@ -175,6 +175,14 @@ export class CalendarServiceImpl implements CalendarService {
               gte: startDay,
             },
           },
+          // Exclude soft-deleted/archived events. Deletions never remove rows in
+          // this archival mirror; they set status "cancelled". Without this, a
+          // deleted busy block (e.g. a cancelled recurring "work" event) would
+          // still count as busy and block auto-scheduling. NULL status is a live
+          // local/manual event and must be kept.
+          {
+            OR: [{ status: null }, { status: { not: "cancelled" } }],
+          },
         ],
       },
     });

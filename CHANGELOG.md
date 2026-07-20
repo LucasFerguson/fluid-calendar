@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Auto-schedule now ignores deleted/archived events when checking availability. Because deletions are preserved as `status:"cancelled"` in the archival mirror, the scheduler's calendar-conflict query was counting soft-deleted events (e.g. a cancelled recurring "work" block) as busy time, which could fill the entire work window and leave no slots — so no tasks got scheduled. The availability query now excludes cancelled events (NULL-status events are still treated as busy)
 - Calendar no longer loads the entire event archive (including cancelled/archived events) on first paint: the page's unbounded server-side event preload was removed, fixing archived events briefly showing on the calendar and a large over-fetch on every calendar load
 - Defense in depth against archived events rendering: the calendar store now drops any `status: "cancelled"` row at the single render choke point (`getExpandedEvents`), so a cancelled/archived event can never appear on the calendar even if a fetch path regresses — while NULL-status local/manual events stay visible
 - Moving or editing an existing Google event failed after the archival changes (soft-cancel + the new `(feedId, externalEventId)` unique constraint broke the old delete-then-recreate update path); the update now upserts in place
