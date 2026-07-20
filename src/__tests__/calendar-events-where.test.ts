@@ -4,7 +4,7 @@ import {
   DEFAULT_LIMIT,
   buildCalendarEventsWhere,
   isTruncated,
-} from "@/app/api/calendar/events/route";
+} from "@/app/api/calendar/events/query";
 
 const USER_ID = "user-123";
 const RANGE_START = new Date("2026-07-01T00:00:00.000Z");
