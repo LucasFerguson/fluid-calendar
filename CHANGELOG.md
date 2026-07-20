@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Agent tool server for AI assistants (e.g. Open WebUI): an OpenAPI tool server at `GET /api/mcp/openapi.json` with tool calls at `POST /api/mcp/tools/<name>`, authed with a FluidCalendar API key. Read tools (`list_calendar_events`, `list_calendars`, `list_tasks`, `get_stats`) and create tools (`create_task`, `create_calendar_event`); editing/deleting events is intentionally not exposed. Tools delegate to a new service layer (`src/services/*`) so archived/cancelled events and disabled calendars are excluded consistently. Write tools require a write-scoped key. See `docs/agent-tools.md`
 - The nav activity indicator's panel now includes a "System pulse" section: live countdowns to the next calendar-sync and contacts/CRM-sync worker ticks, plus animated totals (events archived, contacts, deletions preserved, audit entries, calendars, CRM profiles) and years of history mirrored. Data comes from the existing stats endpoints and loads lazily when the panel opens
 - Recurring events can be deleted "this and following" (truncates the series' RRULE with `UNTIL`), alongside single-occurrence and whole-series deletes, from both the event modal and the quick-view popup
 - Per-calendar color override and background-opacity control (a calendar can be a faint always-on time-blocking base layer), with auto-contrasting event text so events stay legible on any color

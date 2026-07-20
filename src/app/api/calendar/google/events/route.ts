@@ -1,20 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { Prisma } from "@prisma/client";
 import { GaxiosError } from "gaxios";
-import { calendar_v3 } from "googleapis";
 
 import { authenticateRequest } from "@/lib/auth/api-auth";
-import {
-  enrichAttendees,
-  writeAttendeeRecords,
-} from "@/lib/calendar-attendees";
+import { writeGoogleEventToDatabase } from "@/lib/calendar/google-event-write";
 import {
   deleteCalendarEvent,
   getEvent,
   validateEvent,
 } from "@/lib/calendar-db";
-import { createAllDayDate, newDate } from "@/lib/date-utils";
+import { newDate } from "@/lib/date-utils";
 import getGoogleEvent, {
   createGoogleEvent,
   deleteGoogleEvent,
@@ -25,110 +20,9 @@ import { prisma } from "@/lib/prisma";
 
 const LOG_SOURCE = "GoogleEventsAPI";
 
-type GoogleEvent = calendar_v3.Schema$Event;
-
-// Helper function to write event to database
-async function writeEventToDatabase(
-  feedId: string,
-  event: GoogleEvent,
-  instances?: GoogleEvent[]
-) {
-  const isRecurring = !!event.recurrence;
-  const isAllDay = event.start ? !event.start.dateTime : false;
-
-  if (!isRecurring) {
-    if (!event.id) return null;
-    // Upsert (not create): after an edit/move the row already exists — and now
-    // carries a (feedId, externalEventId) unique constraint — so a plain create
-    // would violate it. Upsert also un-cancels a previously soft-cancelled row.
-    const data = {
-      feedId,
-      externalEventId: event.id,
-      title: event.summary || "Untitled Event",
-      description: event.description || "",
-      start: isAllDay
-        ? createAllDayDate(event.start?.date || "")
-        : newDate(event.start?.dateTime || event.start?.date || ""),
-      end: isAllDay
-        ? createAllDayDate(event.end?.date || "")
-        : newDate(event.end?.dateTime || event.end?.date || ""),
-      location: event.location,
-      isRecurring: isRecurring,
-      recurrenceRule: event.recurrence?.[0],
-      allDay: isAllDay,
-      status: event.status,
-      sequence: event.sequence,
-      created: event.created ? newDate(event.created) : undefined,
-      lastModified: event.updated ? newDate(event.updated) : undefined,
-      organizer: event.organizer
-        ? { name: event.organizer.displayName, email: event.organizer.email }
-        : undefined,
-      attendees: enrichAttendees(event.attendees) as
-        | Prisma.InputJsonValue
-        | undefined,
-    };
-    const row = await prisma.calendarEvent.upsert({
-      where: { feedId_externalEventId: { feedId, externalEventId: event.id } },
-      create: data,
-      update: data,
-    });
-    await writeAttendeeRecords(row.id, event.attendees);
-    return row;
-  }
-
-  // Upsert instances if any
-  const createdInstances = [];
-  if (instances) {
-    for (const instance of instances) {
-      if (!instance.id) continue;
-      const instanceIsAllDay = instance.start
-        ? !instance.start.dateTime
-        : false;
-
-      const data = {
-        feedId,
-        externalEventId: instance.id,
-        title: instance.summary || "Untitled Event",
-        description: instance.description || "",
-        start: instanceIsAllDay
-          ? createAllDayDate(instance.start?.date || "")
-          : newDate(instance.start?.dateTime || instance.start?.date || ""),
-        end: instanceIsAllDay
-          ? createAllDayDate(instance.end?.date || "")
-          : newDate(instance.end?.dateTime || instance.end?.date || ""),
-        location: instance.location,
-        isRecurring: true,
-        recurrenceRule: event.recurrence?.[0],
-        recurringEventId: instance.recurringEventId,
-        allDay: instanceIsAllDay,
-        status: instance.status,
-        sequence: instance.sequence,
-        created: instance.created ? newDate(instance.created) : undefined,
-        lastModified: instance.updated ? newDate(instance.updated) : undefined,
-        organizer: instance.organizer
-          ? {
-              name: instance.organizer.displayName,
-              email: instance.organizer.email,
-            }
-          : undefined,
-        attendees: enrichAttendees(instance.attendees) as
-          | Prisma.InputJsonValue
-          | undefined,
-      };
-      const createdInstance = await prisma.calendarEvent.upsert({
-        where: {
-          feedId_externalEventId: { feedId, externalEventId: instance.id },
-        },
-        create: data,
-        update: data,
-      });
-      await writeAttendeeRecords(createdInstance.id, instance.attendees);
-      createdInstances.push(createdInstance);
-    }
-  }
-
-  return createdInstances;
-}
+// The shared write path lives in @/lib/calendar/google-event-write so the
+// agent/MCP create-event service persists rows identically to this route.
+const writeEventToDatabase = writeGoogleEventToDatabase;
 
 // Create a new event
 export async function POST(request: NextRequest) {
