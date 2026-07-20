@@ -37,10 +37,10 @@ function rangeKey(start: Date, end: Date): string {
 // CalendarEvent shape (Date objects), so getExpandedEvents' `instanceof Date`
 // paths and FullCalendar receive real Dates.
 //
-// todo(ws4): this is the single seam where a defensive client-side
-// `status !== "cancelled"` guard could slot in if WS4 wants belt-and-braces on
-// top of the server-side includeCancelled=false filter. Left additive on
-// purpose — do not add the filter here; WS4 owns that decision + tests.
+// Note (ws4): the defensive client-side `status === "cancelled"` guard lives in
+// getExpandedEvents (the single render choke point that feeds all four views),
+// not here — this normalize() stays purely additive (date coercion only) so the
+// filter is defined in exactly one place.
 function normalize(event: CalendarEvent): CalendarEvent {
   return {
     ...event,
@@ -275,6 +275,17 @@ export const useCalendarStore = create<CalendarStore>()((set, get) => ({
     // console.log("Total events in store:", events.length);
 
     events.forEach((event) => {
+      // Defense in depth: the query layer already excludes status:"cancelled"
+      // (includeCancelled=false), but this is the single render choke point that
+      // feeds all four views, so guard here too — a cancelled/archived row must
+      // never render even if a fetch path regresses. Use === "cancelled" (not
+      // !== "confirmed") so NULL-status local/manual events stay visible. This
+      // also protects any future client-side expansion below. The status stored
+      // by the sync/DB is the provider's lowercase literal ("cancelled"), which
+      // is also what the query-layer filters match; the declared EventStatus
+      // enum is uppercase, hence the cast.
+      if ((event.status as string | undefined) === "cancelled") return;
+
       // Convert event dates to Date objects if they're not already
       let eventStart =
         event.start instanceof Date ? event.start : newDate(event.start);
@@ -335,8 +346,14 @@ export const useCalendarStore = create<CalendarStore>()((set, get) => ({
             }
           });
         } catch (error) {
-          console.error("Failed to parse recurrence rule:", error);
-          console.log("recurrenceRule:", event.recurrenceRule);
+          logger.error(
+            "Failed to parse recurrence rule",
+            {
+              error: error instanceof Error ? error.message : String(error),
+              recurrenceRule: event.recurrenceRule ?? null,
+            },
+            LOG_SOURCE
+          );
           // If we can't parse the rule, just show the original event
           if (eventStart <= end && eventEnd >= start) {
             expandedEvents.push({
